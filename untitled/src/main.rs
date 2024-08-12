@@ -2,11 +2,26 @@ mod websocket;
 mod grid;
 
 use actix_web::{web, App, HttpServer, HttpResponse, Responder};
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::sync::{Arc, RwLock};
 use actix_web::middleware::Logger;
 use grid::Grid;
 
+/// Retrieves the current state of the grid as a bitfield, wrapped in an HTTP response.
+///
+/// This asynchronous function reads the grid from a shared, thread-safe container and converts it
+/// into a bitfield representation. It then wraps this bitfield into an HTTP response with a status
+/// code of 200 (OK).
+///
+/// # Arguments
+///
+/// * `grid` - A web data wrapper containing an `Arc` wrapped `RwLock` of the `Grid` struct. This
+///   ensures that the grid can be shared and read across multiple threads safely.
+///
+/// # Returns
+///
+/// An implementation of the `Responder` trait containing the bitfield representation of the grid
+/// as the HTTP response body.
 async fn get_grid(grid: web::Data<Arc<RwLock<Grid>>>) -> impl Responder {
     let grid = grid.read().unwrap();
     HttpResponse::Ok().body(grid.to_bitfield())

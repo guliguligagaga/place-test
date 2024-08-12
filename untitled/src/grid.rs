@@ -1,25 +1,6 @@
-use std::time::SystemTime;
-use serde::{Deserialize, Serialize};
 use rand::Rng;
-
-const COLOR_PALETTE: [(u8, u8, u8); 16] = [
-    (0, 0, 0),        // 0: Black
-    (255, 0, 0),      // 1: Red
-    (0, 255, 0),      // 2: Green
-    (255, 255, 0),    // 3: Yellow
-    (0, 0, 255),      // 4: Blue
-    (255, 0, 255),    // 5: Magenta
-    (0, 255, 255),    // 6: Cyan
-    (255, 255, 255),  // 7: White
-    (128, 0, 0),      // 8: Maroon
-    (255, 165, 0),    // 9: Orange
-    (255, 192, 203),  // 10: Pink
-    (128, 128, 0),    // 11: Olive
-    (0, 128, 128),    // 12: Teal
-    (128, 0, 128),    // 13: Purple
-    (192, 192, 192),  // 14: Silver
-    (128, 128, 128),  // 15: Gray
-];
+use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 
 const WIDTH: usize = 500;
 const HEIGHT: usize = 500;
@@ -57,7 +38,10 @@ impl Grid {
     pub(crate) fn modify_cell(&mut self, x: usize, y: usize, color: u8) -> Option<()> {
         if x < WIDTH && y < HEIGHT {
             let index = y * WIDTH + x;
-            let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?.as_millis() as u32;
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()?
+                .as_millis() as u32;
             self.cells[index] = Cell::new(color, timestamp);
             Some(())
         } else {

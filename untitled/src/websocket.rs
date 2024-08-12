@@ -6,6 +6,27 @@ use actix_ws::Message;
 use futures_util::stream::StreamExt;
 use crate::grid::Grid;
 
+/// WebSocket handler for managing WebSocket connections with the client.
+/// 
+/// This function takes an HTTP request and payload, along with a shared grid state,
+/// and manages the WebSocket session, processing messages received from the client.
+/// 
+/// It responds to text messages containing two comma-separated integers representing
+/// grid coordinates, returning the cell data at those coordinates.
+/// 
+/// The function also handles Ping messages by responding with a Pong,
+/// and closes the session on receiving unsupported message types.
+///
+/// # Arguments
+///
+/// * `req` - HTTP request that initiates the WebSocket connection.
+/// * `body` - Payload of the HTTP request.
+/// * `grid` - Shared grid state that can be accessed and modified concurrently.
+///
+/// # Returns
+///
+/// An instance of `actix_web::Result` containing a responder that will handle
+/// the WebSocket response, or an error in case of failure.
 pub async fn ws(req: HttpRequest, body: web::Payload, grid: web::Data<Arc<RwLock<Grid>>>) -> actix_web::Result<impl Responder> {
     let (response, mut session, mut msg_stream) = actix_ws::handle(&req, body)?;
 

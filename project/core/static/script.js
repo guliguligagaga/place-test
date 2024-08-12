@@ -8,7 +8,8 @@ const zoomedCtx = zoomedCanvas.getContext('2d');
 const width = 200;
 const height = 200;
 const applyButton = document.getElementById('applyButton');
-const socket = new WebSocket('ws://localhost:8080/ws/');
+let socket
+let reconnectInterval = 5000; // Time between reconnection attempts (5 seconds)
 
 
 var isZoomed = false;
@@ -16,6 +17,8 @@ const scale = 4;
 var zoomScale = 20;
 var zoomedX, zoomedY;
 
+var selectedX
+var selectedY
 const colorMap = [
     [107, 1, 25],    // #6B0119
     [189, 0, 55],    // #BD0037
@@ -98,23 +101,7 @@ async function fetchCanvasData() {
     const arrayBuffer = await response.arrayBuffer();
     return new Uint8Array(arrayBuffer);
 }
-socket.addEventListener('message', (event) => {
-    const data = JSON.parse(event.data);
-    const {x, y, color} = data;
-    let pixelData = new Uint8ClampedArray(width * height * 4); // RGBA for each pixel
-    if (x >= 0 && x < width && y >= 0 && y < height && color >= 0 && color < colorMap.length) {
-        const index = (y * width + x) * 4;
-        const colorArray = colorMap[color];
-        pixelData[index] = colorArray[0];    // Red
-        pixelData[index + 1] = colorArray[1]; // Green
-        pixelData[index + 2] = colorArray[2]; // Blue
-        pixelData[index + 3] = colorArray[3]; // Alpha
 
-        // Update the canvas
-        const imageData = new ImageData(pixelData, width, height);
-        ctx.putImageData(imageData, 0, 0);
-    }
-});
 
 // displayCanvas.addEventListener('click', function(event) {
 //     // Get the position of the click
@@ -195,11 +182,23 @@ function zoomIntoArea(x, y) {
 }
 
 function showColorPicker(x, y) {
-    const imageData = zoomedCtx.getImageData(x, y, 1, 1).data;
-    colorPicker.value = `#${((1 << 24) + (imageData[0] << 16) + (imageData[1] << 8) + imageData[2]).toString(16).slice(1).toUpperCase()}`;
-    colorPicker.style.display = 'block';
-    colorPicker.focus();
-}
+        const  rect = zoomedCanvas.getBoundingClientRect();
+        const canvasX = x + rect.left;
+        const canvasY = y + rect.top;
+
+        // Position color picker right under the clicked pixel
+        colorPicker.style.left = `${canvasX}px`;
+        colorPicker.style.top = `${canvasY}px`;
+
+        const imageData = zoomedCtx.getImageData(x, y, 1, 1).data;
+        colorPicker.value = `#${((1 << 24) + (imageData[0] << 16) + (imageData[1] << 8) + imageData[2]).toString(16).slice(1).toUpperCase()}`;
+
+        // Expand and display the color picker
+        colorPicker.style.display = 'block';
+        colorPicker.focus();
+        selectedX = x
+        selectedY = y
+    }
 
 // Handle click on original canvas
 originalCanvas.addEventListener('click', function(event) {
@@ -236,3 +235,60 @@ backButton.addEventListener('click', function() {
     colorPicker.style.display = 'none';
     isZoomed = false;
 });
+
+window.onload = function () {
+    if (socket == null) {
+        connect()
+        return
+    }
+    if (socket.CLOSED) {
+        connect()
+    }
+}
+
+window.onbeforeunload = function(event) {
+    socket.close()
+}
+
+function connect() {
+    socket = new WebSocket('ws://localhost:8080/ws/');
+
+    socket.onopen = function() {
+        console.log('WebSocket connection established');
+    };
+
+    socket.onmessage = function(event) {
+        console.log('Message received:', event.data);
+    };
+
+    socket.onclose = function(event) {
+        if (event.wasClean) {
+            console.log('WebSocket connection closed cleanly');
+        } else {
+            console.log('WebSocket connection lost, attempting to reconnect...');
+            setTimeout(connect, reconnectInterval);
+        }
+    };
+
+    socket.onerror = function(error) {
+        console.log('WebSocket error:', error.message);
+        socket.close(); // Close the connection on error to trigger the reconnection logic
+    };
+    socket.addEventListener('message', (event) => {
+        const data = JSON.parse(event.data);
+        const {x, y, color} = data;
+        let pixelData = new Uint8ClampedArray(width * height * 4); // RGBA for each pixel
+        if (x >= 0 && x < width && y >= 0 && y < height && color >= 0 && color < colorMap.length) {
+            const index = (y * width + x) * 4;
+            const colorArray = colorMap[color];
+            pixelData[index] = colorArray[0];    // Red
+            pixelData[index + 1] = colorArray[1]; // Green
+            pixelData[index + 2] = colorArray[2]; // Blue
+            pixelData[index + 3] = colorArray[3]; // Alpha
+
+            // Update the canvas
+            const imageData = new ImageData(pixelData, width, height);
+            ctx.putImageData(imageData, 0, 0);
+        }
+    });
+}

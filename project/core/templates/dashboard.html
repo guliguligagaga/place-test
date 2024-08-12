@@ -2,22 +2,31 @@
 {% load static %}
 
 {% block content %}
-    <div id="canvasContainer" style="position: relative;">
-        <div id="originalCanvasWrapper" style="transform: scale(4); transform-origin: top left;">
-            <canvas id="originalCanvas" width="200" height="200" style="image-rendering: pixelated; "></canvas>
-        </div>
-        <canvas id="zoomedCanvas" style="position: absolute; top: 0; left: 0; display: none;"></canvas>
-        <button id="backButton" style="display: none; position: absolute; top: 10px; left: 10px;">Back</button>
-        <button id="applyButton" style="display: none;">Apply</button>
-        <input type="color" id="colorPicker" style="display: none;">
+<br>
+<div id="canvasContainer" style="position: relative;">
+    <canvas id="zoomedCanvas" style="position: absolute; top: 0; left: 0; display: none;"></canvas>
+    <br>
+    <button id="applyButton" style=" position: absolute; ">Apply</button>
+    <br>
+    <!-- Original canvas with 4x scaling -->
+    <div id="originalCanvasWrapper" style="transform: scale(4); transform-origin: top left;
+         image-rendering: pixelated;">
+        <canvas id="originalCanvas" width="200" height="200"></canvas>
     </div>
+
+    <!-- Zoomed canvas -->
+
+    <!-- Back button -->
+    <button id="backButton" style="display: none; position: absolute;">Back</button>
+
+    <!-- Color picker -->
+    <input type="color" id="colorPicker" style="display: none; position: absolute; z-index: 1000;">
+</div>
 
     <script src="{% static "script.js" %}"></script>
     <script>
         drawCanvas();
     </script>
-    
-    <input type="color" id="colorPicker" style="display: none;">
     
     
 {% endblock content %}
