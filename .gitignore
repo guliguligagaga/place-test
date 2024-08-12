@@ -1,15 +1,13 @@
 # Rust
 untitled/target/
 **/*.rs.bk
-
+untitled/.fleet/
 # Django
 *.pyc
 project/core/__pycache__/
-db.sqlite3
+project/db.sqlite3
 media/
 staticfiles/
-
 .idea
-
 project/.idea/
 project/.fleet/
