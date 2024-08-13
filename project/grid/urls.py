@@ -4,4 +4,5 @@ from grid import views
 
 urlpatterns = [
     path("", views.get_canvas_data, name="data"),
+    path("draw", views.draw, name="draw")
 ]

@@ -6,7 +6,12 @@
 <div id="canvasContainer" style="position: relative;">
     <canvas id="zoomedCanvas" style="position: absolute; top: 0; left: 0; display: none;"></canvas>
     <br>
-    <button id="applyButton" style=" position: absolute; ">Apply</button>
+    <form id="myForm" method="POST" action="{% url 'draw' %}">
+        {% csrf_token %}
+        <input type="hidden" id="myData" name="myData" value="">
+        <button id="applyButton" style=" position: absolute; ">Apply</button>
+    </form>
+
     <br>
     <!-- Original canvas with 4x scaling -->
     <div id="originalCanvasWrapper" style="transform: scale(4); transform-origin: top left;
@@ -25,6 +30,50 @@
 
     <script src="{% static "script.js" %}"></script>
     <script>
+                // Handle Apply button click
+                applyButton.addEventListener('click', function() {
+                    const selectedColor = colorPicker.value;
+
+
+                            // Set the value of the hidden input field
+                    document.getElementById('myData').value = JSON.stringify({
+                        'x': Math.ceil(selectedX),
+                        'y': Math.ceil(selectedY),
+                        'color': 1,
+                    });
+
+                            // Submit the form
+                    document.getElementById('myForm').submit();
+
+
+                    // Send the selected color to the backend
+//                    fetch('http://localhost:8000/grid/draw', {
+//                        method: 'POST',
+//                        headers: {
+//                            'Content-Type': 'application/json',
+//                        },
+//                        body: JSON.stringify({
+//                            'x': selectedX,
+//                            'y': selectedY,
+//                            'color': selectedColor
+//                        })
+//                    })
+//                        .then(response => response.json())
+//                        .then(data => {
+//                            console.log('Color update successful:', data);
+//                            // Optionally, update the canvas with the new color
+//                            originalCtx.fillStyle = selectedColor;
+//                            originalCtx.fillRect(selectedX, selectedY, 1, 1);
+//
+//                            // Hide the color picker and apply button after use
+//                            colorPicker.style.display = 'none';
+//                            applyButton.style.display = 'none';
+//                        })
+//                        .catch((error) => {
+//                            console.error('Error:', error);
+//                        });
+                });
+
         drawCanvas();
     </script>
     

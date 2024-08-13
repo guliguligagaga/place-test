@@ -125,38 +125,6 @@ function rgbToHex(r, g, b) {
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
 }
 
-// Handle Apply button click
-applyButton.addEventListener('click', function() {
-    const selectedColor = colorPicker.value;
-
-    // Send the selected color to the backend
-    fetch('/update-color/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'  // Ensure CSRF token is included
-        },
-        body: JSON.stringify({
-            'x': selectedX,
-            'y': selectedY,
-            'color': selectedColor
-        })
-    })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Color update successful:', data);
-            // Optionally, update the canvas with the new color
-            ctx.fillStyle = selectedColor;
-            ctx.fillRect(selectedX, selectedY, 1, 1);
-
-            // Hide the color picker and apply button after use
-            colorPicker.style.display = 'none';
-            applyButton.style.display = 'none';
-        })
-        .catch((error) => {
-            console.error('Error:', error);
-        });
-});
 
 function zoomIntoArea(x, y) {
     zoomedCtx.imageSmoothingEnabled = false;
@@ -251,7 +219,7 @@ window.onbeforeunload = function(event) {
 }
 
 function connect() {
-    socket = new WebSocket('ws://localhost:8080/ws/');
+    socket = new WebSocket('ws://localhost:8080/ws');
 
     socket.onopen = function() {
         console.log('WebSocket connection established');
@@ -274,10 +242,12 @@ function connect() {
         console.log('WebSocket error:', error.message);
         socket.close(); // Close the connection on error to trigger the reconnection logic
     };
+
     socket.addEventListener('message', (event) => {
         const data = JSON.parse(event.data);
         const {x, y, color} = data;
-        let pixelData = new Uint8ClampedArray(width * height * 4); // RGBA for each pixel
+        const imageData = originalCtx.getImageData(0, 0, originalCanvas.width, originalCanvas.height);
+        const pixelData = imageData.data;
         if (x >= 0 && x < width && y >= 0 && y < height && color >= 0 && color < colorMap.length) {
             const index = (y * width + x) * 4;
             const colorArray = colorMap[color];
@@ -287,8 +257,8 @@ function connect() {
             pixelData[index + 3] = colorArray[3]; // Alpha
 
             // Update the canvas
-            const imageData = new ImageData(pixelData, width, height);
-            ctx.putImageData(imageData, 0, 0);
+
+            originalCtx.putImageData(imageData, 0, 0);
         }
     });
 }
