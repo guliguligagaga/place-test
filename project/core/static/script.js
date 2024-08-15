@@ -5,8 +5,8 @@ const backButton = document.getElementById('backButton');
 const colorPicker = document.getElementById('colorPicker');
 const originalCtx = originalCanvas.getContext('2d');
 const zoomedCtx = zoomedCanvas.getContext('2d');
-const width = 200;
-const height = 200;
+const width = 500;
+const height = 500;
 const applyButton = document.getElementById('applyButton');
 let socket
 let reconnectInterval = 5000; // Time between reconnection attempts (5 seconds)
@@ -219,7 +219,7 @@ window.onbeforeunload = function(event) {
 }
 
 function connect() {
-    socket = new WebSocket('ws://localhost:8080/ws');
+    socket = new WebSocket('ws://localhost:8080/api/ws');
 
     socket.onopen = function() {
         console.log('WebSocket connection established');

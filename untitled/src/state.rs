@@ -10,7 +10,7 @@ use crate::grid::Grid;
 type Client = UnboundedSender<Message>;
 
 pub struct AppState {
-    pub grid: Arc<RwLock<Grid>>,
+    // pub grid: Arc<RwLock<Grid>>,
     pub clients: Arc<RwLock<Vec<Client>>>,
     pub pool: Pool,
 }
@@ -23,11 +23,11 @@ struct DrawReq {
 }
 
 impl AppState {
-    pub async fn new(grid: Arc<RwLock<Grid>>, clients: Vec<Client>) -> Self {
+    pub async fn new(clients: Vec<Client>) -> Self {
         AppState {
-            grid,
+            // grid,
             clients: Arc::new(RwLock::new(clients)),
-            pool: new("redis://redis:6379").await,
+            pool: new("redis://localhost:6379").await,
         }
     }
 
@@ -71,6 +71,14 @@ pub async fn get_bit(pool: &Pool, key: &str, index: usize) -> u8 {
         .arg("GET")
         .arg("u4")
         .arg(index)
+        .query_async(&mut conn)
+        .await.unwrap()
+}
+
+pub async fn get_bitfield(pool: &Pool, key: &str) -> Vec<u8> {
+    let mut conn = pool.get().await.expect("Failed to get Redis connection");
+    redis::cmd("GET")
+        .arg(key)
         .query_async(&mut conn)
         .await.unwrap()
 }

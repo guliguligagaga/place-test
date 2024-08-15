@@ -4,14 +4,12 @@ mod state;
 
 use actix_web::{web, App, HttpServer, HttpResponse, Responder, HttpRequest};
 use serde::Deserialize;
-use std::sync::{Arc, RwLock};
 use actix_web::middleware::Logger;
-use grid::Grid;
 use crate::state::{set_bit, AppState};
 
 async fn get_grid(state: web::Data<AppState>) -> impl Responder {
-    let grid = state.grid.read().unwrap();
-    HttpResponse::Ok().body(grid.to_bitfield())
+    let grid = state::get_bitfield(&state.pool, "grid").await;
+    HttpResponse::Ok().body(grid)
 }
 
 #[derive(Debug, Deserialize)]
@@ -22,19 +20,18 @@ struct DrawReq {
 }
 
 async fn modify_cell(req: web::Json<DrawReq>, state: web::Data<AppState>) -> impl Responder {
-    match set_bit(&state.pool,"grid", req.x + req.y * 200, req.color).await {
+    match set_bit(&state.pool,"grid", (req.x + req.y * 500)*4, req.color).await {
         Ok(_) => {
             state.notify_clients(req.x, req.y, req.color);
             HttpResponse::Ok().body("Cell updated")
         }
-        Err(e) => HttpResponse::BadRequest().body("Invalid cell coordinates"),
+        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let grid = Arc::new(RwLock::new(Grid::new()));
-    let app_state = AppState::new(grid, vec![]).await;
+    let app_state = AppState::new(vec![]).await;
     let state = web::Data::new(app_state);
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
