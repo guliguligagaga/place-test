@@ -1,37 +1,16 @@
-mod grid;
 mod websocket;
-mod state;
+mod holder;
+mod errors;
 
-use actix_web::{web, App, HttpServer, HttpResponse, Responder, HttpRequest};
-use serde::Deserialize;
+use crate::holder::{GridHolder, new, DrawReq};
 use actix_web::middleware::Logger;
-use crate::state::{set_bit, AppState};
-
-async fn get_grid(state: web::Data<AppState>) -> impl Responder {
-    let grid = state::get_bitfield(&state.pool, "grid").await;
-    HttpResponse::Ok().body(grid)
-}
-
-#[derive(Debug, Deserialize)]
-struct DrawReq {
-    x: usize,
-    y: usize,
-    color: u8,
-}
-
-async fn modify_cell(req: web::Json<DrawReq>, state: web::Data<AppState>) -> impl Responder {
-    match set_bit(&state.pool,"grid", (req.x + req.y * 500)*4, req.color).await {
-        Ok(_) => {
-            state.notify_clients(req.x, req.y, req.color);
-            HttpResponse::Ok().body("Cell updated")
-        }
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
-    }
-}
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use deadpool_redis::{Config, Pool, Runtime};
+use futures_util::TryFutureExt;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let app_state = AppState::new(vec![]).await;
+    let app_state = new(vec![], new_pool("redis://localhost:6379"));
     let state = web::Data::new(app_state);
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
@@ -46,4 +25,24 @@ async fn main() -> std::io::Result<()> {
         .bind("0.0.0.0:8080")?
         .run()
         .await
+}
+
+async fn get_grid(state: web::Data<GridHolder>) -> impl Responder {
+    state.get_grid().map_ok_or_else(
+        |e| HttpResponse::BadRequest().body(e.to_string()),
+        |grid| HttpResponse::Ok().body(grid),
+    ).await
+}
+
+async fn modify_cell(req: web::Json<DrawReq>, state: web::Data<GridHolder>) -> impl Responder {
+    state.update_cell(&req)
+        .map_ok_or_else(
+            |e| HttpResponse::BadRequest().body(e.to_string()),
+            |_| HttpResponse::Ok().body("{\"status\": \"ok\"}"),
+        ).await
+}
+
+fn new_pool(redis_url: &str) -> Pool {
+    let cfg = Config::from_url(redis_url);
+    cfg.create_pool(Option::from(Runtime::Tokio1)).expect("Failed to create Redis pool")
 }
