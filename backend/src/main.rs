@@ -2,6 +2,8 @@ mod websocket;
 mod holder;
 mod errors;
 
+use std::env;
+
 use crate::holder::{GridHolder, new, DrawReq};
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
@@ -10,10 +12,14 @@ use futures_util::TryFutureExt;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let app_state = new(vec![], new_pool("redis://localhost:6379"));
+
+    let redis_address = env::var("REDIS_ADDRESS").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let app_state = new(vec![], new_pool(&redis_address));
     let state = web::Data::new(app_state);
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+    let address = env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
@@ -22,7 +28,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/grid", web::get().to(get_grid))
             .route("/api/draw", web::post().to(modify_cell))
     })
-        .bind("0.0.0.0:8080")?
+        .bind(address)?
         .run()
         .await
 }

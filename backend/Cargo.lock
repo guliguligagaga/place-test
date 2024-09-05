@@ -325,6 +325,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 
 [[package]]
+name = "backend"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "actix-web",
+ "actix-ws",
+ "bincode",
+ "bitfield",
+ "bytes",
+ "bytestring",
+ "deadpool-redis",
+ "env_logger",
+ "futures-util",
+ "num-bigint",
+ "num-traits",
+ "rand",
+ "redis",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1382,29 +1405,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a56d1686db2308d901306f92a263857ef59ea39678a5458e7cb17f01415101f5"
 dependencies = [
  "tinyvec",
-]
-
-[[package]]
-name = "untitled"
-version = "0.1.0"
-dependencies = [
- "actix-rt",
- "actix-web",
- "actix-ws",
- "bincode",
- "bitfield",
- "bytes",
- "bytestring",
- "deadpool-redis",
- "env_logger",
- "futures-util",
- "num-bigint",
- "num-traits",
- "rand",
- "redis",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

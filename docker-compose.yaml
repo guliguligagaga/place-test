@@ -3,12 +3,10 @@ version: '3.8'
 services:
   django:
     build:
-      context: ./project
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - ./project:/app
     depends_on:
       - rust_backend
     environment:
@@ -18,14 +16,15 @@ services:
 
   rust_backend:
     build:
-      context: ./untitled
+      context: ./backend
       dockerfile: Dockerfile
+    environment:
+      - BIND_ADDRESS=0.0.0.0:8080
+      - REDIS_ADDRESS=redis://redis:6379
     ports:
       - "8080:8080"
     depends_on:
         - redis
-    volumes:
-      - ./untitled:/usr/src/app
     networks:
       - my_network
 
