@@ -97,7 +97,7 @@ async function drawCanvas() {
     originalCtx.putImageData(imageData, 0, 0);
 }
 async function fetchCanvasData() {
-    const response = await fetch('http://localhost:8000/grid');
+    const response = await fetch('http://localhost/grid');
     const arrayBuffer = await response.arrayBuffer();
     return new Uint8Array(arrayBuffer);
 }
