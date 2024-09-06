@@ -50,7 +50,6 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.github",
 ]
 
- # <-------- this
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:8000',
     'http://localhost',
@@ -58,7 +57,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 
-CSRF_TRUSTED_ORIGINS = ["http://192.168.1.155:8000/", "http://127.0.0.1:8000"]  # (Api Base Url)
+CSRF_TRUSTED_ORIGINS = ["http://localhost:8000/", "http://127.0.0.1:8000"]  # (Api Base Url)
+
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

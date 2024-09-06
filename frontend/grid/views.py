@@ -2,7 +2,8 @@ import json
 
 import requests
 from django.http import HttpResponse
-from django.utils.crypto import get_random_string
+from django.shortcuts import HttpResponseRedirect
+
 
 
 def get_canvas_data(request):
@@ -13,8 +14,9 @@ def get_canvas_data(request):
     binary_data = data.content
     return HttpResponse(binary_data, content_type='application/octet-stream')
 
+
 def draw(request):
     # Dummy data for illustration
     data = requests.post('http://rust_backend:8080/api/draw',json=json.loads(request.POST['myData']))
 
-    return HttpResponse(data.content)
+    return HttpResponseRedirect("/dashboard/")

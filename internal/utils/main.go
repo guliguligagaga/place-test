@@ -2,15 +2,19 @@ package main
 
 import (
 	"fmt"
-	"net/http"
-	"runtime"
+    "math/rand"
+    "net/http"
+    "time"
+
+    //"runtime"
 	"strings"
 	"sync"
 )
 
 func main() {
 	url := "http://localhost:8080/api/draw"
-	numWorkers := runtime.NumCPU()
+	//numWorkers := runtime.NumCPU()
+	numWorkers := 2
 	var wg sync.WaitGroup
 	tasks := make(chan [2]int, 500*500)
 
@@ -18,11 +22,13 @@ func main() {
 		defer wg.Done()
 		for task := range tasks {
 			i, j := task[0], task[1]
-			payload := strings.NewReader(fmt.Sprintf("{\"x\":%d,\"y\":%d,\"color\":5}", i, j))
+			n:= rand.Int31n(33)
+			payload := strings.NewReader(fmt.Sprintf("{\"x\":%d,\"y\":%d,\"color\":%d}", i, j, n))
 			req, _ := http.NewRequest("POST", url, payload)
 			req.Header.Add("Content-Type", "application/json")
 			req.Header.Add("User-Agent", "insomnia/9.3.3")
 			_, _ = http.DefaultClient.Do(req)
+			println("sent", time.Now().Unix())
 		}
 	}
 
