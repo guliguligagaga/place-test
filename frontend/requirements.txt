@@ -1,8 +1,0 @@
-Django==5.1
-Requests==2.32.3
-requests_oauthlib==2.0.0
-PyJWT==2.9.0
-django-allauth==64.0.0
-django-cors-headers==4.4.0
-channels==4.1.0
-cryptography==43.0.0

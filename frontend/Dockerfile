@@ -1,26 +1,32 @@
-# Dockerfile for Django
+# Build stage
+FROM node:18-alpine as build
 
-# Use the official Python image as the base image
-FROM python:3.11-slim
-
-# Set environment variables to prevent Python from writing .pyc files and to buffer stdout and stderr
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements.txt file to the container
-COPY requirements.txt /app/
+# Copy package.json and package-lock.json
+COPY package*.json ./
 
-# Install the dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN npm ci
 
-# Copy the rest of the application code to the container
-COPY . /app/
+# Copy all files
+COPY . .
 
-# Expose the port that the Django app runs on
-EXPOSE 8000
+# Build the app
+RUN npm run build
 
-# Run the Django development server
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Production stage
+FROM nginx:alpine
+
+# Copy built assets from build stage
+COPY --from=build /app/build /usr/share/nginx/html
+
+# Copy nginx.conf configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx.conf
+CMD ["nginx", "-g", "daemon off;"]
