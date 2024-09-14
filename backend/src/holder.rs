@@ -5,15 +5,23 @@ use redis::aio::ConnectionLike;
 use redis::RedisError;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::UnboundedSender;
 use crate::errors::AppError;
+use std::time::{Duration, Instant};
 
-type Client = UnboundedSender<Message>;
+type Client = UnboundedSender<String>;
 
+const QUADRANT_SIZE: usize = 250;
+const GRID_SIZE: usize = 500; // Assuming a 2000x2000 grid
+const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 
 pub struct GridHolder {
-    pub clients: Arc<RwLock<Vec<Client>>>,
-    pub pool: Arc<Pool>,
+    clients: RwLock<HashMap<usize, (Client, Instant)>>,
+    quadrant_subscriptions: RwLock<HashMap<usize, HashSet<usize>>>,
+    pool: deadpool_redis::Pool,
+    next_client_id: RwLock<usize>,
+    quadrants: RwLock<Vec<Quadrant>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -23,60 +31,159 @@ pub struct DrawReq {
     pub color: u8,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Quadrant {
+    pub id: usize,
+    pub x: usize,
+    pub y: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ConfigurationMessage {
+    r#type: String,
+    quadrants: Vec<Quadrant>,
+}
+
+#[derive(Debug, Serialize)]
+struct UpdateMessage {
+    r#type: String,
+    x: usize,
+    y: usize,
+    color: u8,
+}
+
 impl GridHolder {
-    /// Fetches the grid from Redis.
-    pub async fn get_grid(&self) -> Result<Vec<u8>, AppError> {
+    pub async fn get_grid(self: &Arc<Self>) -> Result<Vec<u8>, AppError> {
         let mut conn = self.get_connection().await?;
         get_bitfield(&mut conn, "grid").await
             .map_err(AppError::from)
     }
 
-    /// Updates a specific cell in the grid and notifies clients.
-    pub async fn update_cell(&self, req: &DrawReq) -> Result<(), AppError> {
+    pub async fn update_cell(self: &Arc<Self>, req: &DrawReq) -> Result<(), AppError> {
         let mut conn = self.get_connection().await?;
         let index = calculate_index(req.x, req.y);
         set_bit(&mut conn, "grid", index, req.color).await?;
-        self.notify_clients(req);
+        self.notify_quadrant(req);
         Ok(())
     }
 
-    /// Acquires a connection from the pool.
     async fn get_connection(&self) -> Result<Connection, AppError> {
         self.pool.get().await
             .map_err(AppError::from)
     }
 
-    /// Notifies all connected clients about a grid update.
-    fn notify_clients(&self, req: &DrawReq) {
+    fn notify_quadrant(&self, req: &DrawReq) {
+        let quadrant_id = calculate_quadrant_id(req.x, req.y);
+        let subscriptions = self.quadrant_subscriptions.read().unwrap();
         let clients = self.clients.read().unwrap();
-        if clients.is_empty() {
-            return;
-        }
-        let message = match serde_json::to_string(req) {
-            Ok(msg) => ByteString::from(msg),
-            Err(e) => {
-                eprintln!("Failed to serialize DrawReq: {}", e);
-                return;
+
+        if let Some(subscribed_clients) = subscriptions.get(&quadrant_id) {
+            let update_message = UpdateMessage {
+                r#type: "update".to_string(),
+                x: req.x,
+                y: req.y,
+                color: req.color,
+            };
+            let message = serde_json::to_string(&update_message).unwrap();
+            for &client_id in subscribed_clients {
+                if let Some((client, _)) = clients.get(&client_id) {
+                    let _ = client.send(message.clone());
+                }
             }
+        }
+    }
+
+    pub fn remove_client(&self, client_id: usize) {
+        self.clients.write().unwrap().remove(&client_id);
+        let mut subscriptions = self.quadrant_subscriptions.write().unwrap();
+        for subscribed_clients in subscriptions.values_mut() {
+            subscribed_clients.remove(&client_id);
+        }
+    }
+
+    pub fn subscribe_to_quadrant(&self, client_id: usize, quadrant_id: usize) {
+        self.quadrant_subscriptions
+            .write()
+            .unwrap()
+            .entry(quadrant_id)
+            .or_insert_with(HashSet::new)
+            .insert(client_id);
+    }
+
+    pub fn unsubscribe_from_quadrant(&self, client_id: usize, quadrant_id: usize) {
+        if let Some(subscribed_clients) = self.quadrant_subscriptions.write().unwrap().get_mut(&quadrant_id) {
+            subscribed_clients.remove(&client_id);
+        }
+    }
+
+    pub fn update_client_activity(&self, client_id: usize) {
+        if let Some((_, last_activity)) = self.clients.write().unwrap().get_mut(&client_id) {
+            *last_activity = Instant::now();
+        }
+    }
+
+    pub fn clean_inactive_clients(&self) {
+        let now = Instant::now();
+        let mut clients_to_remove = Vec::new();
+
+        {
+            let clients = self.clients.read().unwrap();
+            for (&client_id, (_, last_activity)) in clients.iter() {
+                if now.duration_since(*last_activity) > INACTIVITY_TIMEOUT {
+                    clients_to_remove.push(client_id);
+                }
+            }
+        }
+
+        for client_id in clients_to_remove {
+            self.remove_client(client_id);
+        }
+    }
+
+    pub fn add_client(&self, client: Client) -> usize {
+        let mut next_id = self.next_client_id.write().unwrap();
+        let id = *next_id;
+        *next_id += 1;
+        self.clients.write().unwrap().insert(id, (client.clone(), Instant::now()));
+
+        // Send configuration message to the new client
+        let config_message = ConfigurationMessage {
+            r#type: "configuration".to_string(),
+            quadrants: self.quadrants.read().unwrap().clone(),
         };
+        let message = serde_json::to_string(&config_message).unwrap();
+        let _ = client.send(message);
 
-        for client in clients.iter() {
-            if let Err(e) = client.send(Message::Text(message.clone())) {
-                eprintln!("Failed to send message to client: {}", e);
+        id
+    }
+
+    pub fn initialize_quadrants(&self) {
+        let mut quadrants = Vec::new();
+        for y in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
+            for x in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
+                quadrants.push(Quadrant {
+                    id: calculate_quadrant_id(x, y),
+                    x,
+                    y,
+                });
             }
         }
+        *self.quadrants.write().unwrap() = quadrants;
     }
 }
 
-/// Creates a new GridHolder.
-pub fn new(clients: Vec<Client>, pool: Pool) -> GridHolder {
-    GridHolder {
-        clients: Arc::new(RwLock::new(clients)),
-        pool: Arc::new(pool),
-    }
+pub fn new(pool: deadpool_redis::Pool) -> GridHolder {
+    let holder = GridHolder {
+        clients: RwLock::new(HashMap::new()),
+        quadrant_subscriptions: RwLock::new(HashMap::new()),
+        pool,
+        next_client_id: RwLock::new(0),
+        quadrants: RwLock::new(Vec::new()),
+    };
+    holder.initialize_quadrants();
+    holder
 }
 
-/// Sets a bit in the Redis bitfield.
 async fn set_bit(conn: &mut impl ConnectionLike, key: &str, index: usize, value: u8) -> Result<(), RedisError> {
     redis::cmd("BITFIELD")
         .arg(key)
@@ -88,7 +195,6 @@ async fn set_bit(conn: &mut impl ConnectionLike, key: &str, index: usize, value:
         .await
 }
 
-/// Retrieves the bitfield from Redis.
 async fn get_bitfield(conn: &mut impl ConnectionLike, key: &str) -> Result<Vec<u8>, RedisError> {
     redis::cmd("GET")
         .arg(key)
@@ -96,7 +202,10 @@ async fn get_bitfield(conn: &mut impl ConnectionLike, key: &str) -> Result<Vec<u
         .await
 }
 
-/// Calculates the index for the bitfield based on x, y coordinates.
 fn calculate_index(x: usize, y: usize) -> usize {
     (x + y * 500) * 4
+}
+
+fn calculate_quadrant_id(x: usize, y: usize) -> usize {
+    (x / QUADRANT_SIZE) + (y / QUADRANT_SIZE) * (GRID_SIZE / QUADRANT_SIZE)
 }

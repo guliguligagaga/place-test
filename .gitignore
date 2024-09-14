@@ -11,3 +11,4 @@ staticfiles/
 .idea
 frontend/.idea/
 frontend/.fleet/
+frontend/note_modules/

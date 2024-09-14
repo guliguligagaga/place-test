@@ -1,42 +1,54 @@
-version: '3.8'
-
 services:
-  django:
+
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "3000:3000"
+    env_file: ./frontend/.env
     depends_on:
-      - rust_backend
-    environment:
-      - DEBUG=1
-    networks:
-      - my_network
-
-  rust_backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    environment:
-      - BIND_ADDRESS=0.0.0.0:8080
-      - REDIS_ADDRESS=redis://redis:6379
-    ports:
-      - "8080:8080"
-    depends_on:
-        - redis
+      - backend
+      - auth
     networks:
       - my_network
 
   nginx:
-    image: nginx:latest
+    image: nginx:alpine
     ports:
       - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - django
-      - rust_backend
+      - frontend
+      - backend
+      - auth
+    networks:
+      - my_network
+
+  auth:
+    build:
+      context: ./auth
+      dockerfile: Dockerfile
+    environment:
+      - JWT_SECRET=secret
+      - GIN_MODE=release
+    ports:
+      - "8081:8081"
+    networks:
+      - my_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - BIND_ADDRESS=0.0.0.0:5001
+      - REDIS_ADDRESS=redis://redis:6379
+    ports:
+      - "5001:5001"
+    depends_on:
+        - redis
     networks:
       - my_network
   

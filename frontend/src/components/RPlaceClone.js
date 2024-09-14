@@ -1,52 +1,60 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button } from 'react-bootstrap';
-import { GoogleLogin, googleLogout, useGoogleLogin } from '@react-oauth/google';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {Alert, Button} from 'react-bootstrap';
+import {GoogleLogin, googleLogout} from '@react-oauth/google';
 import useGrid from '../hooks/useGrid';
 import PixelGrid from './PixelGrid';
-import ColorPicker, {COLORS} from './ColorPicker';
+import ColorPicker from './ColorPicker';
 
-const GRID_SIZE = 100;
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://api.example.com';
+const GRID_SIZE = 500;
+const QUADRANT_SIZE = 1000;
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081';
+const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+const COLORS = [
+    '#FFFFFF', '#E4E4E4', '#888888', '#222222',
+    '#FFA7D1', '#E50000', '#E59500', '#A06A42',
+    '#E5D900', '#94E044', '#02BE01', '#00D3DD',
+    '#0083C7', '#0000EA', '#CF6EE4', '#820080'
+];
 
 const RPlaceClone = () => {
-    const [grid, setGrid, updateGrid] = useGrid();
-    const [selectedColor, setSelectedColor] = useState(COLORS[0]);
+    const [grid, setGrid, updateGrid] = useGrid(GRID_SIZE * GRID_SIZE);
+    const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
     const [token, setToken] = useState(null);
+    const [quadrants, setQuadrants] = useState([]);
+    const [visibleQuadrants, setVisibleQuadrants] = useState(new Set());
     const wsRef = useRef(null);
+    const lastActivityRef = useRef(Date.now());
 
     useEffect(() => {
-        const loadGoogleScript = () => {
-            const script = document.createElement('script');
-            script.src = 'https://accounts.google.com/gsi/client';
-            script.async = true;
-            script.defer = true;
-            document.body.appendChild(script);
-            return script;
-        };
-
-        const script = loadGoogleScript();
-
-        return () => {
-            document.body.removeChild(script);
-        };
+        const storedUser = localStorage.getItem('user');
+        const storedToken = localStorage.getItem('token');
+        if (storedUser && storedToken) {
+            setUser(JSON.parse(storedUser));
+            setToken(storedToken);
+        }
     }, []);
+
 
     const handleGoogleSignIn = useCallback(async (tokenResponse) => {
         try {
-            const res = await fetch(`${API_BASE_URL}/auth/google`, {
+            const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ token: tokenResponse }),
+                body: JSON.stringify({token: tokenResponse.credential}),
+                credentials: 'include',
             });
 
             if (res.ok) {
                 const data = await res.json();
                 setUser(data.user);
                 setToken(data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('token', data.token);
                 await fetchGrid();
                 connectWebSocket();
             } else {
@@ -57,10 +65,6 @@ const RPlaceClone = () => {
         }
     }, []);
 
-    const login = useGoogleLogin({
-        onSuccess: handleGoogleSignIn,
-        onError: () => setError('Google Sign-In failed. Please try again.'),
-    });
 
     const fetchGrid = useCallback(async () => {
         if (!token) return;
@@ -74,33 +78,85 @@ const RPlaceClone = () => {
             if (!response.ok) {
                 throw new Error('Failed to fetch grid');
             }
-            const data = await response.json();
-            setGrid(data);
+            const data = await response.arrayBuffer();
+            const newGrid = new Uint8Array(data);
+            setGrid(newGrid);
         } catch (err) {
             setError('Failed to fetch grid');
         }
     }, [token, setGrid]);
 
+    const subscribeToQuadrant = useCallback((quadrantId) => {
+        if (!wsRef.current) return;
+        wsRef.current.send(JSON.stringify({
+            type: 'Subscribe',
+            payload: { quadrant_id: quadrantId }
+        }));
+        console.log(`Subscribed to quadrant ${quadrantId}`);
+    }, []);
+
+    const unsubscribeFromQuadrant = useCallback((quadrantId) => {
+        if (!wsRef.current) return;
+        wsRef.current.send(JSON.stringify({
+            type: 'Unsubscribe',
+            payload: { quadrant_id: quadrantId }
+        }));
+        console.log(`Unsubscribed from quadrant ${quadrantId}`);
+    }, []);
+
+    const handleVisibilityChange = useCallback((newVisibleQuadrants) => {
+        setVisibleQuadrants((prevVisible) => {
+            const toSubscribe = newVisibleQuadrants.filter(id => !prevVisible.has(id));
+            const toUnsubscribe = Array.from(prevVisible).filter(id => !newVisibleQuadrants.has(id));
+
+            toSubscribe.forEach(quadrantId => subscribeToQuadrant(quadrantId));
+            toUnsubscribe.forEach(quadrantId => unsubscribeFromQuadrant(quadrantId));
+
+            return new Set(newVisibleQuadrants);
+        });
+    }, [subscribeToQuadrant, unsubscribeFromQuadrant]);
+
     const connectWebSocket = useCallback(() => {
         if (!token) return;
 
         const wsUrl = `ws:${API_BASE_URL.replace(/^https?:/, '')}/ws`;
-        wsRef.current = new WebSocket(wsUrl);
+        wsRef.current = new WebSocket(wsUrl, [`token.${token}`]);
+
         wsRef.current.onopen = () => {
-            wsRef.current?.send(JSON.stringify({ token }));
+            console.log('WebSocket connection established');
+            // Resubscribe to visible quadrants on reconnection
+            visibleQuadrants.forEach(quadrantId => subscribeToQuadrant(quadrantId));
         };
+
         wsRef.current.onmessage = (event) => {
-            const update = JSON.parse(event.data);
-            updateGrid(update.index, update.color);
+            const data = JSON.parse(event.data);
+            if (data.type === 'configuration') {
+                console.log("Received configuration", data);
+                setQuadrants(data.quadrants);
+                data.quadrants.forEach(quadrant => subscribeToQuadrant(quadrant.id))
+            } else if (data.type === 'update') {
+                console.log("Received update", data);
+                updateGrid(data.x, data.y, data.color);
+            }
         };
-        wsRef.current.onerror = () => setError('WebSocket connection error');
+
+        wsRef.current.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            setError('WebSocket connection error');
+        };
+
+        wsRef.current.onclose = (event) => {
+            console.log('WebSocket connection closed:', event.code, event.reason);
+            // Attempt to reconnect after a delay
+            setTimeout(connectWebSocket, 5000);
+        };
 
         return () => {
             if (wsRef.current) {
                 wsRef.current.close();
             }
         };
-    }, [token, updateGrid]);
+    }, [token, updateGrid, visibleQuadrants, subscribeToQuadrant]);
 
     useEffect(() => {
         if (token) {
@@ -109,38 +165,67 @@ const RPlaceClone = () => {
         }
     }, [token, fetchGrid, connectWebSocket]);
 
-    const handlePixelUpdate = useCallback(async (index) => {
+    useEffect(() => {
+        const checkActivity = () => {
+            const now = Date.now();
+            if (now - lastActivityRef.current > INACTIVITY_TIMEOUT) {
+                if (wsRef.current) {
+                    wsRef.current.close();
+                }
+            }
+        };
+
+        const intervalId = setInterval(checkActivity, 600000); // Check every minute
+
+        return () => clearInterval(intervalId);
+    }, []);
+
+    useEffect(() => {
+        const handleActivity = () => {
+            lastActivityRef.current = Date.now();
+            if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) {
+                connectWebSocket();
+            }
+        };
+
+        window.addEventListener('mousemove', handleActivity);
+        window.addEventListener('keydown', handleActivity);
+
+        return () => {
+            window.removeEventListener('mousemove', handleActivity);
+            window.removeEventListener('keydown', handleActivity);
+        };
+    }, [connectWebSocket]);
+
+    const handlePixelUpdate = useCallback(async (x, y) => {
         if (!token) {
             setError('Please sign in to update pixels');
             return;
         }
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/update`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ index, color: selectedColor }),
-            });
+        const response = await fetch(`${API_BASE_URL}/api/draw`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({x, y, color: selectedColor}),
+        });
 
-            if (!response.ok) throw new Error('Failed to update pixel');
+        if (!response.ok) setError('Failed to update pixel');
 
-            // Optimistically update the grid
-            updateGrid(index, selectedColor);
-        } catch (err) {
-            setError('Failed to update pixel');
-        }
+        // Optimistically update the grid
+        updateGrid(x, y, selectedColor);
     }, [token, selectedColor, updateGrid]);
 
     const handleSignOut = useCallback(() => {
         googleLogout();
         setUser(null);
         setToken(null);
-        setGrid(Array(GRID_SIZE * GRID_SIZE).fill('#FFFFFF'));
+        setGrid(new Uint8Array(GRID_SIZE * GRID_SIZE));
         if (wsRef.current) wsRef.current.close();
-        window.google?.accounts.id.disableAutoSelect();
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
     }, [setGrid]);
 
     return (
@@ -150,8 +235,15 @@ const RPlaceClone = () => {
                 <>
                     <p className="mb-4">Welcome, {user.name}!</p>
                     <Button onClick={handleSignOut} className="mb-4">Sign Out</Button>
-                    <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor} />
-                    <PixelGrid grid={grid} onPixelClick={handlePixelUpdate} />
+                    <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor} colors={COLORS}/>
+                    <PixelGrid
+                        grid={grid}
+                        onPixelClick={handlePixelUpdate}
+                        size={GRID_SIZE}
+                        colors={COLORS}
+                        quadrants={quadrants}
+                        onVisibilityChange={handleVisibilityChange}
+                    />
                 </>
             ) : (
                 <GoogleLogin

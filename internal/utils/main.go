@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	url := "http://localhost:8080/api/draw"
+	url := "http://localhost/api/draw"
 	//numWorkers := runtime.NumCPU()
 	numWorkers := 2
 	var wg sync.WaitGroup
@@ -23,7 +23,7 @@ func main() {
 		for task := range tasks {
 			i, j := task[0], task[1]
 			n:= rand.Int31n(33)
-			payload := strings.NewReader(fmt.Sprintf("{\"x\":%d,\"y\":%d,\"color\":%d}", i, j, n))
+			payload := strings.NewReader(fmt.Sprintf("{\"x\":%d,\"y\":%d,\"color\":%d, \"timestamp\":%d}", i, j, n, time.Now().UnixMilli()))
 			req, _ := http.NewRequest("POST", url, payload)
 			req.Header.Add("Content-Type", "application/json")
 			req.Header.Add("User-Agent", "insomnia/9.3.3")
