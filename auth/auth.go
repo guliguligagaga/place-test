@@ -2,32 +2,31 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
-	ss "strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
-	"google.golang.org/api/oauth2/v2"
+	"google.golang.org/api/idtoken"
 )
 
 func verifyGoogleToken(token string) (*GoogleTokenInfo, error) {
+	log.Println("Verifying Google token...")
 	ctx := context.Background()
-	oauth2Service, err := oauth2.NewService(ctx)
+
+	payload, err := idtoken.Validate(ctx, token, "4569410916-b1reualmp2uqi9qt0ktrsh8ubv6bdsvu.apps.googleusercontent.com")
 	if err != nil {
+		log.Printf("Error validating Google token: %v", err)
 		return nil, err
 	}
 
-	tokenInfo, err := oauth2Service.Tokeninfo().IdToken(token).Do()
-	if err != nil {
-		return nil, err
-	}
-
+	log.Printf("Google token verified successfully. Subject: %s, Email: %s", payload.Subject, payload.Claims["email"])
 	return &GoogleTokenInfo{
-		Sub:   tokenInfo.UserId,
-		Email: tokenInfo.Email,
+		Sub:   payload.Subject,
+		Email: payload.Claims["email"].(string),
 	}, nil
 }
 
@@ -36,18 +35,22 @@ type req struct {
 }
 
 func googleSignIn(c *gin.Context) {
+	log.Println("Handling Google Sign In request...")
 	var r req
-	if err := json.NewDecoder(c.Request.Body).Decode(&r); err != nil {
+	if err := c.ShouldBindJSON(&r); err != nil {
+		log.Printf("Invalid request body: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	tokenInfo, err := verifyGoogleToken(r.Token)
 	if err != nil {
+		log.Printf("Invalid Google token: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
 
+	log.Printf("Google token verified. Generating JWT for user: %s", tokenInfo.Email)
 	claims := &Claims{
 		Sub: tokenInfo.Sub,
 		StandardClaims: jwt.StandardClaims{
@@ -58,10 +61,12 @@ func googleSignIn(c *gin.Context) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString(jwtSecret)
 	if err != nil {
+		log.Printf("Error generating JWT: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
 		return
 	}
 
+	log.Println("JWT generated successfully")
 	c.JSON(http.StatusOK, gin.H{
 		"token": signedToken,
 		"user": gin.H{
@@ -71,71 +76,73 @@ func googleSignIn(c *gin.Context) {
 }
 
 func verifyToken(c *gin.Context) {
+	log.Println("Verifying token from Authorization header...")
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
+		log.Println("Missing authorization header")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing authorization header"})
 		return
 	}
 
 	tokenString = tokenString[len("Bearer "):]
 
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return jwtSecret, nil
-	})
-
+	claims, err := validateJWTToken(tokenString)
 	if err != nil {
+		log.Printf("Invalid token: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
 
-	if _, ok := token.Claims.(*Claims); ok && token.Valid {
-		c.JSON(http.StatusOK, gin.H{"message": "Valid token"})
-	} else {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-	}
+	log.Printf("Token verified successfully. Subject: %s", claims.Sub)
+	c.JSON(http.StatusOK, gin.H{"message": "Valid token", "sub": claims.Sub})
 }
 
 func validateToken(c *gin.Context) {
-	var tokenString string
-
-	// Check for token in Sec-WebSocket-Protocol header
-	if wsProtocol := c.GetHeader("Sec-WebSocket-Protocol"); wsProtocol != "" {
-		parts := ss.SplitN(wsProtocol, ".", 2)
-		if len(parts) == 2 && parts[0] == "token" {
-			tokenString = parts[1]
-		}
-		c.Header("Sec-WebSocket-Protocol", "") // Remove token from header
-	}
-
-	// If not found in Sec-WebSocket-Protocol, check URL query parameter
+	log.Println("Validating token from query or header...")
+	tokenString := c.Query("token")
 	if tokenString == "" {
-		tokenString = c.Query("token")
-	}
-
-	// If still not found, check X-Auth-Token header (for non-WebSocket requests)
-	if tokenString == "" {
+		log.Println("missing query token")
 		tokenString = c.GetHeader("X-Auth-Token")
 	}
 
+	if tokenString == "" {
+		log.Printf("headers %v", c.Request.Header)
+		log.Println("Missing token")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+		return
+	}
+
+	claims, err := validateJWTToken(tokenString)
+	if err != nil {
+		log.Printf("Invalid token: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
+
+	log.Printf("Token validated successfully. Subject: %s", claims.Sub)
+	c.JSON(http.StatusOK, gin.H{"message": "Valid token", "sub": claims.Sub})
+}
+
+func validateJWTToken(tokenString string) (*Claims, error) {
+	log.Println("Validating JWT token...")
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			log.Printf("Unexpected signing method: %v", token.Header["alg"])
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return jwtSecret, nil
 	})
 
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-		return
+		log.Printf("Error parsing JWT token: %v", err)
+		return nil, err
 	}
 
-	if _, ok := token.Claims.(*Claims); ok && token.Valid {
-		// Token is valid, you can use claims if needed
-		c.JSON(http.StatusOK, gin.H{"message": "Valid token"})
-	} else {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		log.Println("JWT token validated successfully")
+		return claims, nil
 	}
+
+	log.Println("Invalid JWT token")
+	return nil, errors.New("invalid token")
 }

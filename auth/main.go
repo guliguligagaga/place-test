@@ -4,8 +4,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/gin-contrib/cors"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,15 +20,15 @@ func init() {
 func main() {
 	router := gin.Default()
 
-	_ = router.SetTrustedProxies(nil)
-	config := cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
-	}
+	// _ = router.SetTrustedProxies(nil)
+	// config := cors.Config{
+	// 	AllowOrigins:     []string{"http://localhost:3000"},
+	// 	AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+	// 	AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+	// 	AllowCredentials: true,
+	// }
 
-	router.Use(cors.New(config))
+	// router.Use(cors.New(config))
 	registerRoutes(router)
 
 	port := os.Getenv("PORT")

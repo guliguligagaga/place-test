@@ -9,6 +9,7 @@ import { debounce } from 'lodash';
 const GRID_SIZE = 100;
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081';
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 const COLORS = [
     '#FFFFFF', '#E4E4E4', '#888888', '#222222',
@@ -22,12 +23,18 @@ const RPlaceClone = () => {
     const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
     const [user, setUser] = useState(null);
-    const [token, setToken] = useState(null);
+    const [token, setToken] = useState(() => localStorage.getItem('token'));
     const [quadrants, setQuadrants] = useState([]);
     const [visibleQuadrants, setVisibleQuadrants] = useState(new Set());
     const [isLoading, setIsLoading] = useState(false);
+    const [wsError, setWsError] = useState(null);
+    const [reconnectDelay, setReconnectDelay] = useState(1000);
+    const [initialFetchDone, setInitialFetchDone] = useState(false);
+
     const wsRef = React.useRef(null);
     const lastActivityRef = React.useRef(Date.now());
+    const reconnectAttemptsRef = React.useRef(0);
+    const reconnectTimeoutRef = React.useRef(null);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -38,38 +45,9 @@ const RPlaceClone = () => {
         }
     }, []);
 
-    const handleGoogleSignIn = useCallback(async (tokenResponse) => {
-        try {
-            setIsLoading(true);
-            const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({token: tokenResponse.credential}),
-                credentials: 'include',
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                setUser(data.user);
-                setToken(data.token);
-                localStorage.setItem('user', JSON.stringify(data.user));
-                localStorage.setItem('token', data.token);
-                await fetchGrid();
-                connectWebSocket();
-            } else {
-                throw new Error('Failed to authenticate with the server');
-            }
-        } catch (err) {
-            setError('Authentication failed. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
     const fetchGrid = useCallback(async () => {
-        if (!token) return;
+        if (!token || initialFetchDone) return;
+        console.log('Fetching grid...');
 
         try {
             setIsLoading(true);
@@ -104,13 +82,15 @@ const RPlaceClone = () => {
             }
             console.log('Unpacked grid data:', unpackedGrid);
             setGrid(unpackedGrid);
+            setInitialFetchDone(true);  // Set this to true after successful fetch
         } catch (err) {
             console.error('Error fetching grid:', err);
             setError('Failed to fetch grid: ' + err.message);
         } finally {
+            console.log('Grid fetch completed');
             setIsLoading(false);
         }
-    }, [token, setGrid]);
+    }, [token, setGrid, initialFetchDone]);
 
     const subscribeToQuadrant = useCallback((quadrantId) => {
         if (!wsRef.current) return;
@@ -130,26 +110,24 @@ const RPlaceClone = () => {
         console.log(`Unsubscribed from quadrant ${quadrantId}`);
     }, []);
 
-    const handleVisibilityChange = useCallback((newVisibleQuadrants) => {
-        setVisibleQuadrants((prevVisible) => {
-            const toSubscribe = newVisibleQuadrants.filter(id => !prevVisible.has(id));
-            const toUnsubscribe = Array.from(prevVisible).filter(id => !newVisibleQuadrants.has(id));
-
-            toSubscribe.forEach(quadrantId => subscribeToQuadrant(quadrantId));
-            toUnsubscribe.forEach(quadrantId => unsubscribeFromQuadrant(quadrantId));
-
-            return new Set(newVisibleQuadrants);
-        });
-    }, [subscribeToQuadrant, unsubscribeFromQuadrant]);
-
     const connectWebSocket = useCallback(() => {
-        if (!token) return;
+        if (!token || wsRef.current) return; // Add this line to prevent multiple connections
+
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+            console.log('Max reconnection attempts reached. Stopping reconnection.');
+            setWsError('Unable to establish WebSocket connection. Please refresh the page.');
+            return;
+        }
 
         const wsUrl = `ws:${API_BASE_URL.replace(/^https?:/, '')}/ws`;
-        wsRef.current = new WebSocket(wsUrl);
+        wsRef.current = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
+        wsRef.current.withCredentials = false;
 
         wsRef.current.onopen = () => {
             console.log('WebSocket connection established');
+            reconnectAttemptsRef.current = 0;
+            setReconnectDelay(1000);
+            setWsError(null);
             // Resubscribe to visible quadrants on reconnection
             visibleQuadrants.forEach(quadrantId => subscribeToQuadrant(quadrantId));
         };
@@ -168,28 +146,104 @@ const RPlaceClone = () => {
 
         wsRef.current.onerror = (error) => {
             console.error('WebSocket error:', error);
-            setError('WebSocket connection error');
+            reconnectAttemptsRef.current++;
+            const nextDelay = Math.min(30000, reconnectDelay * 2);
+            console.log(`Reconnecting in ${nextDelay}ms (attempt ${reconnectAttemptsRef.current} of ${MAX_RECONNECT_ATTEMPTS})`);
+            
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    connectWebSocket();
+                    setReconnectDelay(nextDelay);
+                }, nextDelay);
+            } else {
+                setWsError('Max reconnection attempts reached. Please refresh the page.');
+            }
         };
 
         wsRef.current.onclose = (event) => {
             console.log('WebSocket connection closed:', event.code, event.reason);
-            // Attempt to reconnect after a delay
-            setTimeout(connectWebSocket, 5000);
+            reconnectAttemptsRef.current++;
+            const nextDelay = Math.min(30000, reconnectDelay * 2);
+            console.log(`Reconnecting in ${nextDelay}ms (attempt ${reconnectAttemptsRef.current} of ${MAX_RECONNECT_ATTEMPTS})`);
+            
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    connectWebSocket();
+                    setReconnectDelay(nextDelay);
+                }, nextDelay);
+            } else {
+                setWsError('Max reconnection attempts reached. Please refresh the page.');
+            }
         };
 
         return () => {
             if (wsRef.current) {
                 wsRef.current.close();
             }
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            
         };
-    }, [token, updateGrid, visibleQuadrants, subscribeToQuadrant]);
+    }, [token, updateGrid, visibleQuadrants, subscribeToQuadrant, reconnectDelay]);
+
+    const handleVisibilityChange = useCallback((newVisibleQuadrants) => {
+        setVisibleQuadrants((prevVisible) => {
+            const toSubscribe = newVisibleQuadrants.filter(id => !prevVisible.has(id));
+            const toUnsubscribe = Array.from(prevVisible).filter(id => !newVisibleQuadrants.has(id));
+
+            toSubscribe.forEach(quadrantId => subscribeToQuadrant(quadrantId));
+            toUnsubscribe.forEach(quadrantId => unsubscribeFromQuadrant(quadrantId));
+
+            return new Set(newVisibleQuadrants);
+        });
+    }, [subscribeToQuadrant, unsubscribeFromQuadrant]);
 
     useEffect(() => {
-        if (token) {
+        if (token && !initialFetchDone) {
+            console.log('Token available, fetching grid and connecting WebSocket');
             fetchGrid();
+            reconnectAttemptsRef.current = 0;
             return connectWebSocket();
+        } else if (!token) {
+            localStorage.removeItem('token');
+            if (wsRef.current) {
+                wsRef.current.close();
+            }
+            setGrid(new Uint8Array(GRID_SIZE * GRID_SIZE));
+            setInitialFetchDone(false);  // Reset this when logging out
         }
-    }, [token, fetchGrid, connectWebSocket]);
+    }, [token, fetchGrid, connectWebSocket, initialFetchDone]);
+
+    const handleGoogleSignIn = useCallback(async (tokenResponse) => {
+        try {
+            setIsLoading(true);
+            const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({token: tokenResponse.credential}),
+                credentials: 'include',
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setUser(data.user);
+                setToken(data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('token', data.token);
+                await fetchGrid();
+                connectWebSocket();
+            } else {
+                throw new Error('Failed to authenticate with the server');
+            }
+        } catch (err) {
+            setError('Authentication failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         const checkActivity = () => {
@@ -256,8 +310,6 @@ const RPlaceClone = () => {
         setToken(null);
         setGrid(new Uint8Array(GRID_SIZE * GRID_SIZE));
         if (wsRef.current) wsRef.current.close();
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
     }, [setGrid]);
 
     return (
@@ -282,14 +334,20 @@ const RPlaceClone = () => {
             ) : (
                 <GoogleLogin
                     onSuccess={handleGoogleSignIn}
-                    onError={() => setError('Google Sign-In failed. Please try again.')}
+                    onError={() => setError('Login Failed')}
                 />
             )}
-            {error && (
-                <Alert variant="danger" className="mt-4" onClose={() => setError(null)} dismissible>
-                    {error}
-                </Alert>
-            )}
+        
+            {
+                user ? (
+                    <>
+                    <Button onClick={handleSignOut} className="mb-4">Log Out</Button>
+                    </>
+             
+                ) : (<></>)
+            }
+            {error && <Alert variant="danger" className="mt-3">{error}</Alert>}
+            {wsError && <Alert variant="warning" className="mt-3">{wsError}</Alert>}
         </div>
     );
 };
