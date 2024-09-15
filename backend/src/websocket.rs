@@ -40,7 +40,9 @@ pub async fn ws(req: HttpRequest, body: web::Payload, state: web::Data<Arc<GridH
                                     subscribed_quadrants.remove(&quadrant_id);
                                 },
                                 WsMessage::Draw(draw_req) => {
-                                    let _ = state.update_cell(&draw_req).await;
+                                    if let Err(e) = state.update_cell(&draw_req).await {
+                                        eprintln!("Failed to update cell: {:?}", e);
+                                    }
                                 },
                                 WsMessage::Activity => {
                                     state.update_client_activity(client_id);
@@ -66,7 +68,10 @@ pub async fn ws(req: HttpRequest, body: web::Payload, state: web::Data<Arc<GridH
 
     actix_web::rt::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            let _ = session.text(msg).await;
+            if let Err(e) = session.text(msg).await {
+                eprintln!("Failed to send message to client: {:?}", e);
+                break;
+            }
         }
     });
 
