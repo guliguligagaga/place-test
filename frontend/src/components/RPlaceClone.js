@@ -1,9 +1,10 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Alert, Button} from 'react-bootstrap';
-import {GoogleLogin, googleLogout} from '@react-oauth/google';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { Alert, Button } from 'react-bootstrap';
+import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import useGrid from '../hooks/useGrid';
 import PixelGrid from './PixelGrid';
 import ColorPicker from './ColorPicker';
+import { debounce } from 'lodash';
 
 const GRID_SIZE = 100;
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081';
@@ -24,8 +25,9 @@ const RPlaceClone = () => {
     const [token, setToken] = useState(null);
     const [quadrants, setQuadrants] = useState([]);
     const [visibleQuadrants, setVisibleQuadrants] = useState(new Set());
-    const wsRef = useRef(null);
-    const lastActivityRef = useRef(Date.now());
+    const [isLoading, setIsLoading] = useState(false);
+    const wsRef = React.useRef(null);
+    const lastActivityRef = React.useRef(Date.now());
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -36,9 +38,9 @@ const RPlaceClone = () => {
         }
     }, []);
 
-
     const handleGoogleSignIn = useCallback(async (tokenResponse) => {
         try {
+            setIsLoading(true);
             const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
                 method: 'POST',
                 headers: {
@@ -61,14 +63,16 @@ const RPlaceClone = () => {
             }
         } catch (err) {
             setError('Authentication failed. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
     }, []);
-
 
     const fetchGrid = useCallback(async () => {
         if (!token) return;
 
         try {
+            setIsLoading(true);
             const response = await fetch(`${API_BASE_URL}/api/grid`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -95,18 +99,19 @@ const RPlaceClone = () => {
                 const y = Math.floor(i / (GRID_SIZE / 2));
                 const color2 = byte & 0x0F;
                 const color1 = (byte & 0xF0) >> 4;
-                console.log(`Unpacking grid data: byte=${byte}, x1=${x1}, y=${y}, color1=${color1}, x2=${x2}, y=${y}, color2=${color2}`);
                 unpackedGrid[y * GRID_SIZE + x1] = color1;
                 unpackedGrid[y * GRID_SIZE + x2] = color2;
             }
-
             console.log('Unpacked grid data:', unpackedGrid);
             setGrid(unpackedGrid);
         } catch (err) {
             console.error('Error fetching grid:', err);
             setError('Failed to fetch grid: ' + err.message);
+        } finally {
+            setIsLoading(false);
         }
     }, [token, setGrid]);
+
     const subscribeToQuadrant = useCallback((quadrantId) => {
         if (!wsRef.current) return;
         wsRef.current.send(JSON.stringify({
@@ -196,19 +201,19 @@ const RPlaceClone = () => {
             }
         };
 
-        const intervalId = setInterval(checkActivity, 600000); // Check every minute
+        const intervalId = setInterval(checkActivity, 60000); // Check every minute
 
         return () => clearInterval(intervalId);
     }, []);
 
-    useEffect(() => {
-        const handleActivity = () => {
-            lastActivityRef.current = Date.now();
-            if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) {
-                connectWebSocket();
-            }
-        };
+    const handleActivity = useMemo(() => debounce(() => {
+        lastActivityRef.current = Date.now();
+        if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) {
+            connectWebSocket();
+        }
+    }, 200), [connectWebSocket]);
 
+    useEffect(() => {
         window.addEventListener('mousemove', handleActivity);
         window.addEventListener('keydown', handleActivity);
 
@@ -216,7 +221,7 @@ const RPlaceClone = () => {
             window.removeEventListener('mousemove', handleActivity);
             window.removeEventListener('keydown', handleActivity);
         };
-    }, [connectWebSocket]);
+    }, [handleActivity]);
 
     const handlePixelUpdate = useCallback(async (x, y) => {
         if (!token) {
@@ -224,23 +229,27 @@ const RPlaceClone = () => {
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/api/draw`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({x, y, color: selectedColor}),
-        });
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/draw`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({x, y, color: selectedColor}),
+            });
 
-        if (!response.ok) {
-            setError('Failed to update pixel');
-            return;
+            if (!response.ok) {
+                throw new Error('Failed to update pixel');
+            }
+
+            // Optimistically update the grid
+            updateGrid(x, y, selectedColor);
+        } catch (err) {
+            setError(err.message);
         }
-
-        // Optimistically update the grid
-        updateGrid(x, y, selectedColor);
     }, [token, selectedColor, updateGrid]);
+
     const handleSignOut = useCallback(() => {
         googleLogout();
         setUser(null);
@@ -254,7 +263,9 @@ const RPlaceClone = () => {
     return (
         <div className="container d-flex flex-column align-items-center justify-content-center min-vh-100">
             <h1 className="mb-4">r/place Clone</h1>
-            {user ? (
+            {isLoading ? (
+                <div>Loading...</div>
+            ) : user ? (
                 <>
                     <p className="mb-4">Welcome, {user.name}!</p>
                     <Button onClick={handleSignOut} className="mb-4">Sign Out</Button>
@@ -275,7 +286,7 @@ const RPlaceClone = () => {
                 />
             )}
             {error && (
-                <Alert variant="danger" className="mt-4">
+                <Alert variant="danger" className="mt-4" onClose={() => setError(null)} dismissible>
                     {error}
                 </Alert>
             )}

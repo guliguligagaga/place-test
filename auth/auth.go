@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,7 +14,8 @@ import (
 )
 
 func verifyGoogleToken(token string) (*GoogleTokenInfo, error) {
-	oauth2Service, err := oauth2.New(&http.Client{})
+	ctx := context.Background()
+	oauth2Service, err := oauth2.NewService(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,5 +1,3 @@
-use actix_ws::Message;
-use bytestring::ByteString;
 use deadpool_redis::{Connection, Pool};
 use redis::aio::ConnectionLike;
 use redis::RedisError;

@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useMemo } from 'react';
+import PropTypes from 'prop-types';
 
 const PIXEL_SIZE = 2; // Adjust this value to change the zoom level
 
-const PixelGrid = React.memo(({ grid, onPixelClick, size, colors }) => {
+const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, onVisibilityChange }) => {
     const canvasRef = useRef(null);
     const previousGridRef = useRef(null);
 
@@ -11,12 +12,24 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors }) => {
         ctx.fillRect(x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
     }, [colors]);
 
+    const visibleQuadrants = useMemo(() => {
+        // Calculate visible quadrants based on current view
+        // This is a placeholder implementation
+        return new Set(quadrants.map(q => q.id));
+    }, [quadrants]);
+
+    useEffect(() => {
+        onVisibilityChange(Array.from(visibleQuadrants));
+    }, [visibleQuadrants, onVisibilityChange]);
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+
+        let animationFrameId;
 
         const animate = () => {
             if (grid !== previousGridRef.current) {
@@ -30,13 +43,13 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors }) => {
                 }
                 previousGridRef.current = new Uint8Array(grid);
             }
-            requestAnimationFrame(animate);
+            animationFrameId = requestAnimationFrame(animate);
         };
 
         animate();
 
         return () => {
-            cancelAnimationFrame(animate);
+            cancelAnimationFrame(animationFrameId);
         };
     }, [grid, drawPixel, size]);
 
@@ -63,5 +76,18 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors }) => {
         />
     );
 });
+
+PixelGrid.propTypes = {
+    grid: PropTypes.instanceOf(Uint8Array).isRequired,
+    onPixelClick: PropTypes.func.isRequired,
+    size: PropTypes.number.isRequired,
+    colors: PropTypes.arrayOf(PropTypes.string).isRequired,
+    quadrants: PropTypes.arrayOf(PropTypes.shape({
+        id: PropTypes.number.isRequired,
+        x: PropTypes.number.isRequired,
+        y: PropTypes.number.isRequired,
+    })).isRequired,
+    onVisibilityChange: PropTypes.func.isRequired,
+};
 
 export default PixelGrid;

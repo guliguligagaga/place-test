@@ -12,9 +12,14 @@ services:
       - auth
     networks:
       - my_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.21-alpine
     ports:
       - "80:80"
     volumes:
@@ -25,18 +30,30 @@ services:
       - auth
     networks:
       - my_network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   auth:
     build:
       context: ./auth
       dockerfile: Dockerfile
     environment:
-      - JWT_SECRET=secret
+      - JWT_SECRET=${JWT_SECRET}
       - GIN_MODE=release
     ports:
       - "8081:8081"
     networks:
       - my_network
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   backend:
     build:
@@ -48,17 +65,32 @@ services:
     ports:
       - "5001:5001"
     depends_on:
-        - redis
+      - redis
     networks:
       - my_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
   
   redis:
-    image: redis:alpine
+    image: redis:6-alpine
     ports:
       - "6379:6379"
     networks:
       - my_network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   my_network:
     name: custom_network
+
+volumes:
+  redis_data:
