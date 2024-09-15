@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Alert, Button } from 'react-bootstrap';
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import useGrid from '../hooks/useGrid';
@@ -6,18 +6,7 @@ import PixelGrid from './PixelGrid';
 import ColorPicker from './ColorPicker';
 import { debounce } from 'lodash';
 import styled from 'styled-components';
-
-const GRID_SIZE = 100; // Increased grid size
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081';
-const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-const COLORS = [
-    '#FFFFFF', '#E4E4E4', '#888888', '#222222',
-    '#FFA7D1', '#E50000', '#E59500', '#A06A42',
-    '#E5D900', '#94E044', '#02BE01', '#00D3DD',
-    '#0083C7', '#0000EA', '#CF6EE4', '#820080'
-];
+import { GRID_SIZE, API_BASE_URL, INACTIVITY_TIMEOUT, MAX_RECONNECT_ATTEMPTS, COLORS } from '../utils/constants';
 
 const AppContainer = styled.div`
   background: linear-gradient(to bottom right, #f0f0f0, #e0e0e0);
