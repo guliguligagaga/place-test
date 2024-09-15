@@ -21,6 +21,7 @@ async fn main() -> std::io::Result<()> {
     let app_state = Arc::new(new(new_pool(&redis_address)));
     let state = web::Data::new(app_state.clone());
 
+    app_state.initialize_grid().await.expect("Failed to initialize grid");
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
     let address = env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());

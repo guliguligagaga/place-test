@@ -2,13 +2,36 @@
 backend/target/
 **/*.rs.bk
 backend/.fleet/
-# Django
-*.pyc
-frontend/core/__pycache__/
-frontend/db.sqlite3
+
 media/
 staticfiles/
 .idea
 frontend/.idea/
 frontend/.fleet/
-frontend/note_modules/
+frontend/node_modules/
+nginx/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE specific files
+*.swp
+*.swo
+.vscode/
+.fleet/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

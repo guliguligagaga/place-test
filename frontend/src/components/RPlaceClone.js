@@ -5,8 +5,7 @@ import useGrid from '../hooks/useGrid';
 import PixelGrid from './PixelGrid';
 import ColorPicker from './ColorPicker';
 
-const GRID_SIZE = 500;
-const QUADRANT_SIZE = 1000;
+const GRID_SIZE = 100;
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081';
 const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -73,19 +72,41 @@ const RPlaceClone = () => {
             const response = await fetch(`${API_BASE_URL}/api/grid`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
             });
             if (!response.ok) {
-                throw new Error('Failed to fetch grid');
+                throw new Error(`Failed to fetch grid: ${response.status} ${response.statusText}`);
             }
             const data = await response.arrayBuffer();
-            const newGrid = new Uint8Array(data);
-            setGrid(newGrid);
+            const compressedGrid = new Uint8Array(data);
+            console.log('Fetched compressed grid data:', compressedGrid);
+
+            if (compressedGrid.length !== GRID_SIZE * GRID_SIZE / 2) {
+                console.error(`Invalid grid size: expected ${GRID_SIZE * GRID_SIZE / 2}, got ${compressedGrid.length}`);
+                return;
+            }
+
+            // Unpack the 4-bit format into 8-bit format
+            const unpackedGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
+            for (let i = 0; i < compressedGrid.length; i++) {
+                const byte = compressedGrid[i];
+                const x1 = i * 2;
+                const x2 = x1 + 1;
+                const y = Math.floor(i / (GRID_SIZE / 2));
+                const color2 = byte & 0x0F;
+                const color1 = (byte & 0xF0) >> 4;
+                console.log(`Unpacking grid data: byte=${byte}, x1=${x1}, y=${y}, color1=${color1}, x2=${x2}, y=${y}, color2=${color2}`);
+                unpackedGrid[y * GRID_SIZE + x1] = color1;
+                unpackedGrid[y * GRID_SIZE + x2] = color2;
+            }
+
+            console.log('Unpacked grid data:', unpackedGrid);
+            setGrid(unpackedGrid);
         } catch (err) {
-            setError('Failed to fetch grid');
+            console.error('Error fetching grid:', err);
+            setError('Failed to fetch grid: ' + err.message);
         }
     }, [token, setGrid]);
-
     const subscribeToQuadrant = useCallback((quadrantId) => {
         if (!wsRef.current) return;
         wsRef.current.send(JSON.stringify({
@@ -120,7 +141,7 @@ const RPlaceClone = () => {
         if (!token) return;
 
         const wsUrl = `ws:${API_BASE_URL.replace(/^https?:/, '')}/ws`;
-        wsRef.current = new WebSocket(wsUrl, [`token.${token}`]);
+        wsRef.current = new WebSocket(wsUrl);
 
         wsRef.current.onopen = () => {
             console.log('WebSocket connection established');
@@ -212,12 +233,14 @@ const RPlaceClone = () => {
             body: JSON.stringify({x, y, color: selectedColor}),
         });
 
-        if (!response.ok) setError('Failed to update pixel');
+        if (!response.ok) {
+            setError('Failed to update pixel');
+            return;
+        }
 
         // Optimistically update the grid
         updateGrid(x, y, selectedColor);
     }, [token, selectedColor, updateGrid]);
-
     const handleSignOut = useCallback(() => {
         googleLogout();
         setUser(null);

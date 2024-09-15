@@ -12,14 +12,14 @@ use std::time::{Duration, Instant};
 
 type Client = UnboundedSender<String>;
 
-const QUADRANT_SIZE: usize = 250;
-const GRID_SIZE: usize = 500; // Assuming a 2000x2000 grid
+const QUADRANT_SIZE: usize = 50;
+const GRID_SIZE: usize = 100; // Assuming a 2000x2000 grid
 const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 
 pub struct GridHolder {
     clients: RwLock<HashMap<usize, (Client, Instant)>>,
     quadrant_subscriptions: RwLock<HashMap<usize, HashSet<usize>>>,
-    pool: deadpool_redis::Pool,
+    pool: Pool,
     next_client_id: RwLock<usize>,
     quadrants: RwLock<Vec<Quadrant>>,
 }
@@ -55,8 +55,12 @@ struct UpdateMessage {
 impl GridHolder {
     pub async fn get_grid(self: &Arc<Self>) -> Result<Vec<u8>, AppError> {
         let mut conn = self.get_connection().await?;
-        get_bitfield(&mut conn, "grid").await
-            .map_err(AppError::from)
+        let result = get_bitfield(&mut conn, "grid").await;
+        match &result {
+            Ok(grid) => println!("Retrieved grid from Redis: {} bytes", grid.len()),
+            Err(e) => eprintln!("Error retrieving grid from Redis: {:?}", e),
+        }
+        result.map_err(AppError::from)
     }
 
     pub async fn update_cell(self: &Arc<Self>, req: &DrawReq) -> Result<(), AppError> {
@@ -91,6 +95,27 @@ impl GridHolder {
                 }
             }
         }
+    }
+
+    pub async fn initialize_grid(self: &Arc<Self>) -> Result<(), AppError> {
+        let mut conn = self.get_connection().await?;
+        let exists: bool = redis::cmd("EXISTS")
+            .arg("grid")
+            .query_async(&mut conn)
+            .await?;
+
+        if !exists {
+            println!("Grid does not exist in Redis. Initializing empty grid.");
+            let empty_grid = vec![0u8; GRID_SIZE * GRID_SIZE / 2]; // 4 bits per cell
+            redis::cmd("SET")
+                .arg("grid")
+                .arg(empty_grid)
+                .query_async(&mut conn)
+                .await?;
+        } else {
+            println!("Grid already exists in Redis.");
+        }
+        Ok(())
     }
 
     pub fn remove_client(&self, client_id: usize) {
@@ -172,7 +197,7 @@ impl GridHolder {
     }
 }
 
-pub fn new(pool: deadpool_redis::Pool) -> GridHolder {
+pub fn new(pool: Pool) -> GridHolder {
     let holder = GridHolder {
         clients: RwLock::new(HashMap::new()),
         quadrant_subscriptions: RwLock::new(HashMap::new()),
@@ -185,11 +210,15 @@ pub fn new(pool: deadpool_redis::Pool) -> GridHolder {
 }
 
 async fn set_bit(conn: &mut impl ConnectionLike, key: &str, index: usize, value: u8) -> Result<(), RedisError> {
+    let bit_offset = index * 4;  // Each cell is 4 bits
+
+    println!("Setting bit: index={}, bit_offset={}, value={}",
+             index, bit_offset, value);
     redis::cmd("BITFIELD")
         .arg(key)
         .arg("SET")
         .arg("u4")
-        .arg(index)
+        .arg(index * 4)
         .arg(value)
         .query_async(conn)
         .await
@@ -203,7 +232,7 @@ async fn get_bitfield(conn: &mut impl ConnectionLike, key: &str) -> Result<Vec<u
 }
 
 fn calculate_index(x: usize, y: usize) -> usize {
-    (x + y * 500) * 4
+    x + y * GRID_SIZE
 }
 
 fn calculate_quadrant_id(x: usize, y: usize) -> usize {
