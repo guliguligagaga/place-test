@@ -2,6 +2,7 @@
 backend/target/
 **/*.rs.bk
 backend/.fleet/
+websocket_service/target/  
 
 media/
 staticfiles/
