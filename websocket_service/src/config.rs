@@ -1,8 +1,5 @@
-
-
-use rdkafka::config::ClientConfig;
-use rdkafka::consumer::StreamConsumer;
 use crate::error::ServiceError;
+use rdkafka::config::ClientConfig;
 
 pub fn get_kafka_config() -> Result<ClientConfig, ServiceError> {
     let mut kafka_config = ClientConfig::new();

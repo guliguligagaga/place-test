@@ -3,7 +3,6 @@ pub mod kafka;
 pub mod grid;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use warp::ws::Message;
@@ -20,5 +19,6 @@ pub trait WebSocketHandler: Send + Sync {
 
 #[async_trait]
 pub trait KafkaHandler: Send + Sync {
+    fn topic(&self) -> &str;
     async fn handle_message(&self, msg: &rdkafka::message::BorrowedMessage<'_>, clients: &Clients) -> Result<(), ServiceError>;
 }

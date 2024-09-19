@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use super::{Clients, KafkaHandler};
 use crate::error::ServiceError;
-use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::message::Message as KafkaMessage;
+use rdkafka::consumer::{StreamConsumer};
 use tokio::sync::broadcast;
 use tracing::error;
 

@@ -32,11 +32,11 @@ pub async fn ws(req: HttpRequest, body: web::Payload, state: web::Data<Arc<GridH
                         Ok(ws_msg) => {
                             match ws_msg {
                                 WsMessage::Subscribe { quadrant_id } => {
-                                    state.subscribe_to_quadrant(client_id, quadrant_id);
+                                    //state.subscribe_to_quadrant(client_id, quadrant_id);
                                     subscribed_quadrants.insert(quadrant_id);
                                 },
                                 WsMessage::Unsubscribe { quadrant_id } => {
-                                    state.unsubscribe_from_quadrant(client_id, quadrant_id);
+                                    //state.unsubscribe_from_quadrant(client_id, quadrant_id);
                                     subscribed_quadrants.remove(&quadrant_id);
                                 },
                                 WsMessage::Draw(draw_req) => {
@@ -59,10 +59,10 @@ pub async fn ws(req: HttpRequest, body: web::Payload, state: web::Data<Arc<GridH
             }
         }
 
-        // Clean up when the connection is closed
-        for quadrant_id in subscribed_quadrants {
-            state.unsubscribe_from_quadrant(client_id, quadrant_id);
-        }
+        // // Clean up when the connection is closed
+        // for quadrant_id in subscribed_quadrants {
+        //     state.unsubscribe_from_quadrant(client_id, quadrant_id);
+        // }
         state.remove_client(client_id);
     });
 

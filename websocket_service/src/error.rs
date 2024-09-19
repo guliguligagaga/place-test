@@ -8,10 +8,10 @@ pub enum ServiceError {
     KafkaError(#[from] rdkafka::error::KafkaError),
     #[error("Channel send error: {0}")]
     ChannelSendError(#[from] tokio::sync::mpsc::error::SendError<warp::ws::Message>),
-    #[error("Connection limit reached")]
-    ConnectionLimitReached,
-    #[error("Invalid client configuration: {0}")]
-    InvalidClientConfig(String),
-    #[error("Unsupported handler type: {0}")]
-    UnsupportedHandlerType(String),
+    // #[error("Connection limit reached")]
+    // ConnectionLimitReached,
+    // #[error("Invalid client configuration: {0}")]
+    // InvalidClientConfig(String),
+    // #[error("Unsupported handler type: {0}")]
+    // UnsupportedHandlerType(String),
 }

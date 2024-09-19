@@ -11,6 +11,8 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use deadpool_redis::{Config, Pool, Runtime};
 use futures_util::TryFutureExt;
+use rdkafka::ClientConfig;
+use rdkafka::producer::FutureProducer;
 use tokio::sync::oneshot;
 use tokio::signal;
 use tokio::time::interval;
@@ -18,10 +20,18 @@ use tokio::time::interval;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let redis_address = env::var("REDIS_ADDRESS").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let app_state = Arc::new(new(new_pool(&redis_address)));
-    let state = web::Data::new(app_state.clone());
+    let pool = new_pool(&redis_address);
+
+    let kafka_config = get_kafka_config();
+    let kafka_producer: FutureProducer = kafka_config.create().expect("Failed to create Kafka producer");
+
+    let grid_holder = new(pool, kafka_producer);
+    let app_state = Arc::new(grid_holder);
+    
 
     app_state.initialize_grid().await.expect("Failed to initialize grid");
+
+    let state = web::Data::new(app_state.clone());
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
     let address = env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
@@ -32,7 +42,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .app_data(state.clone())
-            .route("/ws", web::get().to(websocket::ws))
+            //.route("/ws", web::get().to(websocket::ws))
             .route("/grid", web::get().to(get_grid))
             .route("/draw", web::post().to(modify_cell))
     })
@@ -66,6 +76,16 @@ async fn main() -> std::io::Result<()> {
 
     println!("Server shut down gracefully");
     Ok(())
+}
+
+pub fn get_kafka_config() -> ClientConfig {
+    let mut kafka_config = ClientConfig::new();
+    kafka_config
+        .set("group.id", "websocket_service")
+        .set("bootstrap.servers", "localhost:9092")
+        .set("enable.auto.commit", "true");
+
+    kafka_config
 }
 
 async fn get_grid(state: web::Data<Arc<GridHolder>>) -> impl Responder {

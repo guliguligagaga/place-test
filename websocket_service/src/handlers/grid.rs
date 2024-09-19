@@ -34,6 +34,9 @@ impl GridKafkaMessageHandler {
 
 #[async_trait::async_trait]
 impl KafkaHandler for GridKafkaMessageHandler {
+    fn topic(&self) -> &str {
+        "grid_updates"
+    }
     async fn handle_message(&self, payload: &rdkafka::message::BorrowedMessage<'_>, clients: &Clients) -> Result<(), ServiceError> {
         let update = String::from_utf8_lossy(payload.payload().unwrap());
         let clients_read = clients.read().await;

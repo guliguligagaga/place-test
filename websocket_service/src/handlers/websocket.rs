@@ -3,7 +3,7 @@ use super::{Clients, WebSocketHandler};
 use futures::StreamExt;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, warn};
-use warp::ws::{Message, WebSocket};
+use warp::ws::{WebSocket};
 use tokio_stream::wrappers::ReceiverStream;
 const MAX_CONNECTIONS: usize = 10000;
 const CHANNEL_BUFFER_SIZE: usize = 100;

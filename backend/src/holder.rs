@@ -1,12 +1,13 @@
+use crate::errors::AppError;
 use deadpool_redis::{Connection, Pool};
+use rdkafka::producer::{FutureProducer, FutureRecord};
 use redis::aio::ConnectionLike;
 use redis::RedisError;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::collections::{HashMap, HashSet};
-use tokio::sync::mpsc::UnboundedSender;
-use crate::errors::AppError;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc::UnboundedSender;
 
 type Client = UnboundedSender<String>;
 
@@ -16,10 +17,11 @@ const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 
 pub struct GridHolder {
     clients: RwLock<HashMap<usize, (Client, Instant)>>,
-    quadrant_subscriptions: RwLock<HashMap<usize, HashSet<usize>>>,
+    //quadrant_subscriptions: RwLock<HashMap<usize, HashSet<usize>>>,
     pool: Pool,
     next_client_id: RwLock<usize>,
-    quadrants: RwLock<Vec<Quadrant>>,
+    //quadrants: RwLock<Vec<Quadrant>>,
+    broadcast_sender: Option<rdkafka::producer::FutureProducer>, 
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,17 +31,17 @@ pub struct DrawReq {
     pub color: u8,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Quadrant {
-    pub id: usize,
-    pub x: usize,
-    pub y: usize,
-}
+// #[derive(Debug, Deserialize, Serialize, Clone)]
+// pub struct Quadrant {
+//     pub id: usize,
+//     pub x: usize,
+//     pub y: usize,
+// }
 
 #[derive(Debug, Serialize)]
 struct ConfigurationMessage {
     r#type: String,
-    quadrants: Vec<Quadrant>,
+    //quadrants: Vec<Quadrant>,
 }
 
 #[derive(Debug, Serialize)]
@@ -65,7 +67,8 @@ impl GridHolder {
         let mut conn = self.get_connection().await?;
         let index = calculate_index(req.x, req.y);
         set_bit(&mut conn, "grid", index, req.color).await?;
-        self.notify_quadrant(req);
+        //self.notify_quadrant(req);
+        self.broadcast_update(req.x, req.y, req.color).await;
         Ok(())
     }
 
@@ -74,26 +77,39 @@ impl GridHolder {
             .map_err(AppError::from)
     }
 
-    fn notify_quadrant(&self, req: &DrawReq) {
-        let quadrant_id = calculate_quadrant_id(req.x, req.y);
-        let subscriptions = self.quadrant_subscriptions.read().unwrap();
-        let clients = self.clients.read().unwrap();
-
-        if let Some(subscribed_clients) = subscriptions.get(&quadrant_id) {
-            let update_message = UpdateMessage {
-                r#type: "update".to_string(),
-                x: req.x,
-                y: req.y,
-                color: req.color,
-            };
-            let message = serde_json::to_string(&update_message).unwrap();
-            for &client_id in subscribed_clients {
-                if let Some((client, _)) = clients.get(&client_id) {
-                    let _ = client.send(message.clone());
-                }
+    pub async fn broadcast_update(&self, x: usize, y: usize, color: u8) {
+        if let Some(sender) = &self.broadcast_sender {
+            let update = serde_json::to_string(&DrawReq { x, y, color }).unwrap();
+            let record = FutureRecord::<str, [u8]>::to("grid_updates")
+                .payload(update.as_bytes());
+            // Handle error from send
+            match sender.send(record, Duration::from_secs(0)).await {
+                Ok(_) => {}, // Handle success if needed
+                Err((e, _)) => eprintln!("Failed to send update to Kafka: {:?}", e),
             }
-        }
+        } 
     }
+
+    // fn notify_quadrant(&self, req: &DrawReq) {
+    //     let quadrant_id = calculate_quadrant_id(req.x, req.y);
+    //     let subscriptions = self.quadrant_subscriptions.read().unwrap();
+    //     let clients = self.clients.read().unwrap();
+
+    //     if let Some(subscribed_clients) = subscriptions.get(&quadrant_id) {
+    //         let update_message = UpdateMessage {
+    //             r#type: "update".to_string(),
+    //             x: req.x,
+    //             y: req.y,
+    //             color: req.color,
+    //         };
+    //         let message = serde_json::to_string(&update_message).unwrap();
+    //         for &client_id in subscribed_clients {
+    //             if let Some((client, _)) = clients.get(&client_id) {
+    //                 let _ = client.send(message.clone());
+    //             }
+    //         }
+    //     }
+    // }
 
     pub async fn initialize_grid(self: &Arc<Self>) -> Result<(), AppError> {
         let mut conn = self.get_connection().await?;
@@ -118,26 +134,26 @@ impl GridHolder {
 
     pub fn remove_client(&self, client_id: usize) {
         self.clients.write().unwrap().remove(&client_id);
-        let mut subscriptions = self.quadrant_subscriptions.write().unwrap();
-        for subscribed_clients in subscriptions.values_mut() {
-            subscribed_clients.remove(&client_id);
-        }
+        // let mut subscriptions = self.quadrant_subscriptions.write().unwrap();
+        // for subscribed_clients in subscriptions.values_mut() {
+        //     subscribed_clients.remove(&client_id);
+        // }
     }
 
-    pub fn subscribe_to_quadrant(&self, client_id: usize, quadrant_id: usize) {
-        self.quadrant_subscriptions
-            .write()
-            .unwrap()
-            .entry(quadrant_id)
-            .or_insert_with(HashSet::new)
-            .insert(client_id);
-    }
+    // pub fn subscribe_to_quadrant(&self, client_id: usize, quadrant_id: usize) {
+    //     self.quadrant_subscriptions
+    //         .write()
+    //         .unwrap()
+    //         .entry(quadrant_id)
+    //         .or_insert_with(HashSet::new)
+    //         .insert(client_id);
+    // }
 
-    pub fn unsubscribe_from_quadrant(&self, client_id: usize, quadrant_id: usize) {
-        if let Some(subscribed_clients) = self.quadrant_subscriptions.write().unwrap().get_mut(&quadrant_id) {
-            subscribed_clients.remove(&client_id);
-        }
-    }
+    // pub fn unsubscribe_from_quadrant(&self, client_id: usize, quadrant_id: usize) {
+    //     if let Some(subscribed_clients) = self.quadrant_subscriptions.write().unwrap().get_mut(&quadrant_id) {
+    //         subscribed_clients.remove(&client_id);
+    //     }
+    // }
 
     pub fn update_client_activity(&self, client_id: usize) {
         if let Some((_, last_activity)) = self.clients.write().unwrap().get_mut(&client_id) {
@@ -172,7 +188,7 @@ impl GridHolder {
         // Send configuration message to the new client
         let config_message = ConfigurationMessage {
             r#type: "configuration".to_string(),
-            quadrants: self.quadrants.read().unwrap().clone(),
+            //quadrants: self.quadrants.read().unwrap().clone(),
         };
         let message = serde_json::to_string(&config_message).unwrap();
         let _ = client.send(message);
@@ -180,30 +196,31 @@ impl GridHolder {
         id
     }
 
-    pub fn initialize_quadrants(&self) {
-        let mut quadrants = Vec::new();
-        for y in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
-            for x in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
-                quadrants.push(Quadrant {
-                    id: calculate_quadrant_id(x, y),
-                    x,
-                    y,
-                });
-            }
-        }
-        *self.quadrants.write().unwrap() = quadrants;
-    }
+    // pub fn initialize_quadrants(&self) {
+    //     let mut quadrants = Vec::new();
+    //     for y in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
+    //         for x in (0..GRID_SIZE).step_by(QUADRANT_SIZE) {
+    //             quadrants.push(Quadrant {
+    //                 id: calculate_quadrant_id(x, y),
+    //                 x,
+    //                 y,
+    //             });
+    //         }
+    //     }
+    //     *self.quadrants.write().unwrap() = quadrants;
+    // }
 }
 
-pub fn new(pool: Pool) -> GridHolder {
+pub fn new(pool: Pool, producer: FutureProducer) -> GridHolder {
     let holder = GridHolder {
         clients: RwLock::new(HashMap::new()),
-        quadrant_subscriptions: RwLock::new(HashMap::new()),
+        //quadrant_subscriptions: RwLock::new(HashMap::new()),
         pool,
         next_client_id: RwLock::new(0),
-        quadrants: RwLock::new(Vec::new()),
+        //quadrants: RwLock::new(Vec::new()),
+        broadcast_sender: Some(producer),
     };
-    holder.initialize_quadrants();
+    //holder.initialize_quadrants();
     holder
 }
 
