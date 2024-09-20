@@ -1,9 +1,10 @@
-FROM rust:1.68 as builder
-WORKDIR /src/websocket
+FROM golang:1.23-alpine as builder
+WORKDIR /app
 COPY . .
-RUN cargo install --path .
+RUN go mod download
+RUN go build -o backend .
 
-FROM debian:buster-slim
-RUN apt-get update && apt-get install -y libssl-dev && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/cargo/bin/websocket /usr/local/bin/websocket
-CMD ["websocket"]
+FROM scratch
+COPY --from=builder /app/wesocket_service /app/wesocket_service
+EXPOSE 8080
+ENTRYPOINT ["/app/wesocket_service"]

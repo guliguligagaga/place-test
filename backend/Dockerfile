@@ -1,12 +1,10 @@
-FROM rust:alpine3.18 as builder
+FROM golang:1.23-alpine as builder
 WORKDIR /app
-RUN apk add musl-dev
 COPY . .
-RUN cargo build --release
+RUN go mod download
+RUN go build -o backend .
 
 FROM scratch
-USER 1000:1000
-COPY --from=builder --chown=1000:1000 /app/target/release/backend /app
-ENV PORT=8080
+COPY --from=builder /app/backend /app/backend
 EXPOSE 8080
-ENTRYPOINT ["/app"]
+ENTRYPOINT ["/app/backend"]
