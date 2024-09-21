@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -41,7 +40,7 @@ type Update struct {
 
 func init() {
 	redisClient = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr: "redis:6379",
 	})
 }
 
@@ -59,7 +58,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go kafkaConsumer([]string{"localhost:9092"}, "grid_updates")
+	go kafkaConsumer([]string{"kafka:29092"}, "grid_updates")
 
 	<-ctx.Done()
 	log.Println("Shutdown signal received")
@@ -135,21 +134,6 @@ func kafkaConsumer(brokers []string, topic string) {
 			return
 		}
 		log.Printf("Received message from Kafka: %s", string(m.Value))
-
-		// Store update in Redis
-		update := Update{
-			Timestamp: time.Now().UnixNano(),
-			Data:      string(m.Value),
-		}
-		updateJSON, _ := json.Marshal(update)
-		epoch := time.Now().UnixMilli() / 60_000
-		err = redisClient.ZAdd(ctx, fmt.Sprintf("updates:%d", epoch), &redis.Z{
-			Score:  float64(update.Timestamp),
-			Member: string(updateJSON),
-		}).Err()
-		if err != nil {
-			log.Println("Error storing update in Redis:", err)
-		}
 
 		// Broadcast to connected clients
 		clients.RLock()

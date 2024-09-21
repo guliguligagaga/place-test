@@ -32,9 +32,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go kafkaConsumer(ctx, []string{"localhost:9092"}, "grid_updates")
+	go kafkaConsumer(ctx, []string{"kafka:29092"}, "grid_updates")
 	redisClient = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr: "redis:6379",
 	})
 	<-ctx.Done()
 	log.Println("Shutdown signal received")

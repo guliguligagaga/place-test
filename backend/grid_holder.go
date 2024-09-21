@@ -28,8 +28,5 @@ func (gh *CellBroadcast) updateCell(req *DrawReq) error {
 	err = gh.writer.WriteMessages(ctx, kafka.Message{
 		Value: message,
 	})
-	if err != nil {
-		log.Printf("Failed to send update to Kafka: %v", err)
-	}
-	return nil
+	return err
 }

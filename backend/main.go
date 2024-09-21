@@ -23,9 +23,10 @@ var ctx = context.Background()
 func main() {
 
 	kafkaWriter := &kafka.Writer{
-		Addr:     kafka.TCP("localhost:9092"),
-		Topic:    "grid_updates",
-		Balancer: &kafka.LeastBytes{},
+		Addr:                   kafka.TCP("kafka:29092"),
+		Topic:                  "grid_updates",
+		Balancer:               &kafka.LeastBytes{},
+		AllowAutoTopicCreation: true,
 	}
 
 	gridHolder := NewGridHolder(kafkaWriter)
@@ -35,7 +36,7 @@ func main() {
 		modifyCell(c, gridHolder)
 	})
 
-	address := getEnv("BIND_ADDRESS", "0.0.0.0:8080")
+	address := getEnv("BIND_ADDRESS", "0.0.0.0:8083")
 	server := &http.Server{
 		Addr:    address,
 		Handler: router,
