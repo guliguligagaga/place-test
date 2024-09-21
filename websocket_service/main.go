@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,7 +10,9 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
 )
@@ -29,6 +32,44 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+var redisClient *redis.Client
+
+type Update struct {
+	Timestamp int64  `json:"timestamp"`
+	Data      string `json:"data"`
+}
+
+func init() {
+	redisClient = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+}
+
+func main() {
+	http.HandleFunc("/ws", handleWebSocket)
+
+	server := &http.Server{Addr: ":8082"}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe(): %s", err)
+		}
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go kafkaConsumer([]string{"localhost:9092"}, "grid_updates")
+
+	<-ctx.Done()
+	log.Println("Shutdown signal received")
+
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Fatalf("Server Shutdown Failed:%+v", err)
+	}
+	log.Println("Server exited properly")
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -41,6 +82,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	clients.Lock()
 	clients.clients[clientID] = conn
 	clients.Unlock()
+	sendLatestStateAndUpdates(conn)
 
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -56,7 +98,30 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	clients.Unlock()
 }
 
-func kafkaConsumer(ctx context.Context, brokers []string, topic string) {
+func sendLatestStateAndUpdates(conn *websocket.Conn) {
+	ctx := context.Background()
+
+	epoch := time.Now().UnixMilli() / 60_000
+	// Get updates since last connection
+	updates, err := redisClient.ZRangeByScore(ctx, fmt.Sprintf("updates:%d", epoch), &redis.ZRangeBy{
+		Min: "-inf",
+		Max: "+inf",
+	}).Result()
+
+	if err != nil {
+		log.Println("Error getting updates:", err)
+	}
+
+	for _, update := range updates {
+		err = conn.WriteMessage(websocket.TextMessage, []byte(update))
+		if err != nil {
+			log.Println("Error sending update:", err)
+		}
+	}
+}
+
+func kafkaConsumer(brokers []string, topic string) {
+	ctx := context.Background()
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokers,
 		Topic:   topic,
@@ -71,6 +136,22 @@ func kafkaConsumer(ctx context.Context, brokers []string, topic string) {
 		}
 		log.Printf("Received message from Kafka: %s", string(m.Value))
 
+		// Store update in Redis
+		update := Update{
+			Timestamp: time.Now().UnixNano(),
+			Data:      string(m.Value),
+		}
+		updateJSON, _ := json.Marshal(update)
+		epoch := time.Now().UnixMilli() / 60_000
+		err = redisClient.ZAdd(ctx, fmt.Sprintf("updates:%d", epoch), &redis.Z{
+			Score:  float64(update.Timestamp),
+			Member: string(updateJSON),
+		}).Err()
+		if err != nil {
+			log.Println("Error storing update in Redis:", err)
+		}
+
+		// Broadcast to connected clients
 		clients.RLock()
 		for _, conn := range clients.clients {
 			err := conn.WriteMessage(websocket.TextMessage, m.Value)
@@ -80,29 +161,4 @@ func kafkaConsumer(ctx context.Context, brokers []string, topic string) {
 		}
 		clients.RUnlock()
 	}
-}
-
-func main() {
-	http.HandleFunc("/ws", handleWebSocket)
-
-	server := &http.Server{Addr: ":8081"}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("ListenAndServe(): %s", err)
-		}
-	}()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go kafkaConsumer(ctx, []string{"localhost:9092"}, "grid_updates")
-
-	<-ctx.Done()
-	log.Println("Shutdown signal received")
-
-	if err := server.Shutdown(context.Background()); err != nil {
-		log.Fatalf("Server Shutdown Failed:%+v", err)
-	}
-	log.Println("Server exited properly")
 }
