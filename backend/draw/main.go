@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
-	"github.com/gin-gonic/gin"
-	"github.com/segmentio/kafka-go"
-	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
+	"server"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/segmentio/kafka-go"
 )
 
 type DrawReq struct {
@@ -27,38 +26,30 @@ func main() {
 		Topic:                  "grid_updates",
 		Balancer:               &kafka.LeastBytes{},
 		AllowAutoTopicCreation: true,
+		BatchSize:              1_000,
+		Async:                  true,
+		BatchTimeout:           50 * time.Millisecond,
+		RequiredAcks:           kafka.RequireOne,
+		Compression:            kafka.Snappy,
 	}
 
-	gridHolder := NewGridHolder(kafkaWriter)
+	instance := server.NewInstance()
+	instance.AddCloseOnExit(kafkaWriter)
 
+	gridHolder := NewGridHolder(kafkaWriter)
 	router := gin.Default()
 	router.POST("/draw", func(c *gin.Context) {
 		modifyCell(c, gridHolder)
 	})
 
-	address := getEnv("BIND_ADDRESS", "0.0.0.0:8083")
-	server := &http.Server{
+	address := getEnv("BIND_ADDRESS", "0.0.0.0:5001")
+	s := &http.Server{
 		Addr:    address,
 		Handler: router,
 	}
 
-	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Could not listen on %s: %v\n", address, err)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down server...")
-
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
-	}
-
-	log.Println("Server exiting")
+	instance.AddOnStart(s.ListenAndServe)
+	instance.Run()
 }
 
 func getEnv(key, fallback string) string {

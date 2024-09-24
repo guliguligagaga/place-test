@@ -7,9 +7,9 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      - draw
       - auth
-      - websocket_service
+      - websocket
       - grid
     networks:
       - my_network
@@ -21,30 +21,36 @@ services:
 
   auth:
     build:
-      context: ./auth
+      context: ./backend
       dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: auth
     environment:
       - JWT_SECRET=${JWT_SECRET}
       - GIN_MODE=release
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
     ports:
-      - "8081:8081"
+      - "8081:8080"
     networks:
       - my_network
     depends_on:
       - redis
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  backend:
+  draw:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: draw
     environment:
       - BIND_ADDRESS=0.0.0.0:5001
       - REDIS_ADDRESS=redis://redis:6379
+      - GIN_MODE=release
     ports:
       - "5001:5001"
     depends_on:
@@ -60,16 +66,20 @@ services:
 
   grid:
     build:
-      context: ./grid
+      context: ./backend
       dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: grid
     environment:
       - BIND_ADDRESS=0.0.0.0:8083
       - REDIS_ADDRESS=redis://redis:6379
+      - GIN_MODE=release
     ports:
       - "8083:8083"
     depends_on:
       - redis
       - kafka
+      - websocket
     networks:
       - my_network
     healthcheck:
@@ -78,13 +88,16 @@ services:
       timeout: 10s
       retries: 3
 
-  websocket_service:
+  websocket:
     build:
-      context: ./websocket_service
+      context: ./backend
       dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: ws
     environment:
       - BIND_ADDRESS=0.0.0.0:8082
       - REDIS_ADDRESS=redis://redis:6379
+      - GIN_MODE=release
     ports:
       - "8082:8082"
     depends_on:
@@ -111,6 +124,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    environment:
+      - LOG_LEVEL=warn
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -125,6 +140,11 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG4J_ROOT_LOGLEVEL: 'WARN'
+      KAFKA_LOG4J_LOGGERS: 'kafka=WARN,kafka.controller=WARN,kafka.log.LogCleaner=WARN,state.change.logger=WARN,kafka.producer.async.DefaultEventHandler=WARN'
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+      KAFKA_CREATE_TOPICS: "grid_updates:2:1"
+      LOG_LEVEL: warn
     networks:
       - my_network
     healthcheck:
@@ -140,6 +160,8 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: error  # Added this line to set log level to error
+
     networks:
       - my_network
     healthcheck:
@@ -156,12 +178,13 @@ services:
       - KAFKA_CLUSTERS_0_NAME=local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
       - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+      - LOGGING_LEVEL_ROOT=warn
+      - LOGGING_LEVEL_COM_PROVECTUS=warn
     depends_on:
       - kafka
       - zookeeper
     networks:
       - my_network
-
 
 networks:
   my_network:

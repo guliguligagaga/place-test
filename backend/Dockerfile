@@ -1,10 +1,13 @@
 FROM golang:1.23-alpine as builder
 WORKDIR /app
-COPY . .
-RUN go mod download
-RUN go build -o backend .
+ARG SERVICE_NAME
 
-FROM scratch
-COPY --from=builder /app/backend /app/backend
+COPY ./server /server
+COPY ./${SERVICE_NAME} /
+
+RUN go build -o /bin/app /
+
+FROM gcr.io/distroless/static
+COPY --from=builder /bin/app /app
 EXPOSE 8080
-ENTRYPOINT ["/app/backend"]
+ENTRYPOINT ["/app"]

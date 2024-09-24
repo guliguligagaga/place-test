@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,11 +14,13 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
+var googleClientId = os.Getenv("GOOGLE_CLIENT_ID")
+
 func verifyGoogleToken(token string) (*GoogleTokenInfo, error) {
 	log.Println("Verifying Google token...")
 	ctx := context.Background()
 
-	payload, err := idtoken.Validate(ctx, token, "4569410916-b1reualmp2uqi9qt0ktrsh8ubv6bdsvu.apps.googleusercontent.com")
+	payload, err := idtoken.Validate(ctx, token, googleClientId)
 	if err != nil {
 		log.Printf("Error validating Google token: %v", err)
 		return nil, err

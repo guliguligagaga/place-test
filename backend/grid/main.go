@@ -4,21 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"server"
+	"strconv"
+	"time"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
-	"log"
-	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
-	"time"
-)
-
-const (
-	updatesTopic     = "grid-updates"
-	kafkaGroupID     = "grid-sync-consumer-group"
-	redisKeyPrefix   = "grid:update:"
-	redisCacheWindow = time.Hour * 24 // Cache updates for 24 hours
 )
 
 var redisClient *redis.Client
@@ -29,30 +21,32 @@ type Update struct {
 }
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
-	go kafkaConsumer(ctx, []string{"kafka:29092"}, "grid_updates")
+	r := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: []string{"kafka:29092"},
+		Topic:   "grid_updates",
+		GroupID: "grid-sync-consumer-group",
+	})
+	instance := server.NewInstance()
+	instance.AddOnStart(func() error {
+		return kafkaConsumer(r)
+	})
+	instance.AddCloseOnExit(r)
+
 	redisClient = redis.NewClient(&redis.Options{
 		Addr: "redis:6379",
 	})
-	<-ctx.Done()
-	log.Println("Shutdown signal received")
-	log.Println("Server exited properly")
+	instance.AddCloseOnExit(redisClient)
+	instance.Run()
 }
 
-func kafkaConsumer(ctx context.Context, brokers []string, topic string) {
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: brokers,
-		Topic:   topic,
-		GroupID: "grid-sync-consumer-group",
-	})
-
+func kafkaConsumer(r *kafka.Reader) error {
+	ctx := context.Background()
 	for {
 		m, err := r.FetchMessage(ctx)
 		if err != nil {
 			log.Println("Kafka read error:", err)
-			return
+			continue
 		}
 		log.Printf("Received message from Kafka: %s", string(m.Value))
 
