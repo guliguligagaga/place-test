@@ -42,27 +42,31 @@ jobs:
     - name: Build and push auth
       uses: docker/build-push-action@v2
       with:
-        context: ./backend/auth
+        context: ./backend
+        build-args: SERVICE_NAME=auth
         push: true
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth:${{ github.sha }}
 
     - name: Build and push draw
       uses: docker/build-push-action@v2
       with:
-        context: ./backend/draw
+        context: ./backend
+        build-args: SERVICE_NAME=draw
         push: true
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/draw:${{ github.sha }}
 
     - name: Build and push grid
       uses: docker/build-push-action@v2
       with:
-        context: ./backend/grid
+        context: ./backend
+        build-args: SERVICE_NAME=grid
         push: true
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/grid:${{ github.sha }}
 
     - name: Build and push websocket
       uses: docker/build-push-action@v2
       with:
-        context: ./backend/websocket
+        context: ./backend
+        build-args: SERVICE_NAME=websocket
         push: true
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/websocket:${{ github.sha }}
