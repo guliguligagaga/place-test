@@ -67,6 +67,6 @@ jobs:
       uses: docker/build-push-action@v2
       with:
         context: ./backend
-        build-args: SERVICE_NAME=websocket
+        build-args: SERVICE_NAME=ws
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/websocket:${{ github.sha }}
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ws:${{ github.sha }}
