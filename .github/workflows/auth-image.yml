@@ -3,11 +3,11 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'backend/**'
+      - 'backend/auth'
   pull_request:
     branches: [ main ]
     paths:
-      - 'backend/**'
+      - 'backend/auth'
 
 env:
   REGISTRY: ghcr.io
