@@ -27,7 +27,6 @@ func main() {
 			payload := strings.NewReader(fmt.Sprintf("{\"x\":%d,\"y\":%d,\"color\":%d, \"timestamp\":%d}", i, j, n, time.Now().UnixMilli()))
 			req, _ := http.NewRequest("POST", url, payload)
 			req.Header.Add("Content-Type", "application/json")
-			req.Header.Add("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMDc0MTMxNTU5MDQ5NjkyMzc5MzMiLCJleHAiOjE3MjY5NjAyMDZ9.iVXEDAKMzk9LouE5CiSMKK-ms250rP7rNkONmtGdr5c")
 			_, _ = http.DefaultClient.Do(req)
 			println("sent", time.Now().Unix())
 		}
