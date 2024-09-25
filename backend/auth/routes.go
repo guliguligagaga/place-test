@@ -5,7 +5,8 @@ import (
 )
 
 func registerRoutes(router *gin.Engine) {
-	router.POST("/google", googleSignIn)
-	router.GET("/verify", verifyToken)
-	router.GET("/validate_token", validateToken)
+	gr := router.Group("/api/auth")
+	gr.POST("/google", googleSignIn)
+	gr.GET("/verify", verifyToken)
+	gr.GET("/validate_token", validateToken)
 }
