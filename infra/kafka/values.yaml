@@ -1,0 +1,12 @@
+replicaCount: 1
+autoCreateTopicsEnable: true
+deleteTopicEnable: false
+allowPlaintextListener: true
+listeners:
+  - PLAINTEXT
+  - PLAINTEXT_HOST
+advertisedListeners:
+  - PLAINTEXT://kafka:29092
+  - PLAINTEXT_HOST://localhost:9092
+zookeeper:
+  enabled: true

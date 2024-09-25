@@ -1,0 +1,14 @@
+replicaCount: 1
+image:
+  repository: provectuslabs/kafka-ui
+  tag: latest
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8080
+env:
+  KAFKA_CLUSTERS_0_NAME: local
+  KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+  KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+  LOGGING_LEVEL_ROOT: warn
+  LOGGING_LEVEL_COM_PROVECTUS: warn

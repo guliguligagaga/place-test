@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+{{- $releaseName := .Release.Name }}
+metadata:
+  name: {{ $releaseName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "generic-go-service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "generic-go-service.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "generic-go-service.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8889'
+    spec:
+      serviceAccountName: {{ include "generic-go-service.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- if .Values.service.grpc.enabled }}
+            - name: grpc
+              containerPort: {{ .Values.service.grpc.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: namespace
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.redisdb.enabled }}
+            - name: REDIS_HOST
+              value: {{ .Values.redisdb.hostname }}
+            - name: REDIS_PORT
+              value: "{{ .Values.redisdb.port }}"
+            - name: STORAGE_TYPE
+              value: "redis"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redisdb.secretName }}
+                  key: {{ .Values.redisdb.passwordKey }}
+            - name: REDIS_USER
+              value: "apps-{{ .Values.global.env.family }}"
+            {{- end }}
+            - name: WEB_HOST
+              value: "0.0.0.0"
+            - name: WEB_PORT
+              value: "{{ .Values.service.port }}"
+            - name: service
+              value: {{ include "generic-go-service.fullname" . }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name | quote }}
+              value: {{ $value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probe.livenessPath }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probe.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000

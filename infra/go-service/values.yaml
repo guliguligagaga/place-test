@@ -1,0 +1,65 @@
+replicaCount: 1
+image:
+  repository: your-registry/srv-servicename
+  tag: latest
+  pullPolicy: IfNotPresent
+namespace: r-clone
+service:
+  type: ClusterIP
+  port: 80
+  grpc:
+    enabled: false
+    port: 50051
+
+probe:
+  readinessPath: /healthz
+  livenessPath: /healthz
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env: {}
+
+# Redis configurations
+redisdb:
+  enabled: false
+  hostname: ""
+  port: 6379
+  secretName: ""
+  passwordKey: ""
+
+# Additional configurations
+mountPvc: []
+configVolumes: []
+secretVolumes: []
+secretCSIVolumes: []
+
+telemetry:
+  enabled: false
+
+global:
+  registry: ghcr.io/guliguligagaga/place-test
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""

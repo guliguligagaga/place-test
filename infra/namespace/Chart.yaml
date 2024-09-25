@@ -1,0 +1,4 @@
+apiVersion: v2
+name: r-clone-namespace
+description: A Helm chart for creating the r-clone namespace
+version: 0.1.0

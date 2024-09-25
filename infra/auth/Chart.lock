@@ -1,0 +1,6 @@
+dependencies:
+- name: generic-go-service
+  repository: file://../go-service
+  version: 0.1.0
+digest: sha256:42f42bf8e7533c8e961544f474dea88353697969b6f329dbd85fdbb3d603fb5e
+generated: "2024-09-24T20:59:00.890723+02:00"
