@@ -42,7 +42,11 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
+        
+    - name: Create .env file
+      run: |
+        echo "REACT_APP_GOOGLE_CLIENT_ID=${{ secrets.REACT_APP_GOOGLE_CLIENT_ID }}" >> .env
+        
     - name: Build and push Frontend
       uses: docker/build-push-action@v5
       with:
