@@ -79,7 +79,7 @@ func googleSignIn(c *gin.Context) {
 }
 
 func verifyToken(c *gin.Context) {
-	log.Println("Verifying token from Authorization header...")
+	//log.Println("Verifying token from Authorization header...")
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
 		log.Println("Missing authorization header")
@@ -89,15 +89,15 @@ func verifyToken(c *gin.Context) {
 
 	tokenString = tokenString[len("Bearer "):]
 
-	claims, err := validateJWTToken(tokenString)
+	_, err := validateJWTToken(tokenString)
 	if err != nil {
 		log.Printf("Invalid token: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
 
-	log.Printf("Token verified successfully. Subject: %s", claims.Sub)
-	c.JSON(http.StatusOK, gin.H{"message": "Valid token", "sub": claims.Sub})
+	//log.Printf("Token verified successfully. Subject: %s", claims.Sub)
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func validateToken(c *gin.Context) {

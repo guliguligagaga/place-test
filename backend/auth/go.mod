@@ -7,7 +7,10 @@ require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	google.golang.org/api v0.197.0
+	server v0.0.0-00010101000000-000000000000
 )
+
+replace server => ../server
 
 require (
 	cloud.google.com/go/auth v0.9.3 // indirect

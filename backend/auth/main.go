@@ -1,10 +1,9 @@
 package main
 
 import (
-	"log"
 	"os"
+	"server"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,19 +21,9 @@ func main() {
 	router := gin.Default()
 
 	_ = router.SetTrustedProxies(nil)
-	config := cors.Config{
-		AllowOrigins:     []string{"http://localhost"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
-	}
-
-	router.Use(cors.New(config))
+	instance := server.NewInstance()
 	registerRoutes(router)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8081" // default port
-	}
-	log.Fatal(router.Run("0.0.0.0:" + port))
+	instance.SetRoute(router)
+	instance.Run()
 }
