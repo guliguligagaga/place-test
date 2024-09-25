@@ -6,7 +6,7 @@ import PixelGrid from './PixelGrid';
 import ColorPicker from './ColorPicker';
 import { debounce } from 'lodash';
 import styled from 'styled-components';
-import { GRID_SIZE, API_BASE_URL, INACTIVITY_TIMEOUT, MAX_RECONNECT_ATTEMPTS, COLORS } from '../utils/constants';
+import { GRID_SIZE, INACTIVITY_TIMEOUT, MAX_RECONNECT_ATTEMPTS, COLORS } from '../utils/constants';
 
 const AppContainer = styled.div`
   background: linear-gradient(to bottom right, #f0f0f0, #e0e0e0);
@@ -96,7 +96,7 @@ const RPlaceClone = () => {
 
         try {
             setIsLoading(true);
-            const response = await fetch(`${API_BASE_URL}/api/grid`, {
+            const response = await fetch(`${window.location.origin}/api/grid`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 },
@@ -140,7 +140,7 @@ const RPlaceClone = () => {
     const connectWebSocket = useCallback(() => {
         if (!token || wsRef.current) return;
 
-        const wsUrl = `ws:${API_BASE_URL.replace(/^https?:/, '')}/ws`;
+        const wsUrl = `ws:${window.location.origin.replace(/^https?:/, '')}/ws`;
         wsRef.current = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
         wsRef.current.withCredentials = false;
 
@@ -214,7 +214,7 @@ const RPlaceClone = () => {
     const handleGoogleSignIn = useCallback(async (tokenResponse) => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_BASE_URL}/api/auth/google`, {
+            const res = await fetch(`${window.location.origin}/api/auth/google`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -280,7 +280,7 @@ const RPlaceClone = () => {
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/draw`, {
+            const response = await fetch(`${window.location.origin}/api/draw`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
