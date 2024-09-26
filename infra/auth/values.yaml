@@ -2,19 +2,17 @@ replicaCount: 1
 namespace: r-clone
 
 generic-go-service:
-
   image:
     repository: ghcr.io/guliguligagaga/place-test/auth
     tag: main
+    pullPolicy: Always
   service:
     port: 8080
     name: auth
   env:
-    JWT_SECRET: "test"
     GIN_MODE: release
-    GOOGLE_CLIENT_ID: "test"
+    GOOGLE_CLIENT_ID: 4569410916-b1reualmp2uqi9qt0ktrsh8ubv6bdsvu.apps.googleusercontent.com
 
-env:
-  JWT_SECRET: "test"
-  GIN_MODE: release
-  GOOGLE_CLIENT_ID: "test"
+secretsEnabled: true
+secrets:
+  jwt-seed: JWT_SECRET

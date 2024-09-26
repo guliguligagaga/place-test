@@ -1,0 +1,101 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        port: 8000
+        expose: true
+        exposedPort: 80
+        protocol: TCP
+      websecure:
+        enabled: false
+
+    service:
+      enabled: true
+      type: LoadBalancer
+      annotations: {}
+      ports:
+        web:
+          port: 80
+          nodePort: 32269
+          protocol: TCP
+
+    entryPoints:
+      web:
+        address: ":80"
+      websecure:
+        enabled: false
+
+    additionalArguments:
+      - "--providers.kubernetesingress.ingressclass=traefik-internal"
+      - "--log.level=DEBUG"
+
+    ingressRoute:
+      dashboard:
+        enabled: true
+
+    deployment:
+      enabled: true
+
+    ingressClass:
+      enabled: true
+      isDefaultClass: true
+
+    providers:
+      kubernetesCRD:
+        enabled: true
+        allowCrossNamespace: true
+        allowExternalNameServices: true
+      kubernetesIngress:
+        enabled: true
+        allowExternalNameServices: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: auth-route
+  namespace: r-clone
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: PathPrefix(`/api/auth`)
+      priority: 2
+      services:
+        - kind: Service
+          name: auth
+          port: 8080
+
+---
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: frontend-route
+  namespace: r-clone
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: PathPrefix(`/`)
+      priority: 1
+      services:
+        - kind: Service
+          name: frontend
+          port: 3000
+---
+
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-auth
+  namespace: r-clone
+spec:
+  forwardAuth:
+    address: "http://auth/api/auth/verify"

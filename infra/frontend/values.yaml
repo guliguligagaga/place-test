@@ -2,30 +2,8 @@ replicaCount: 1
 image:
   repository: ghcr.io/guliguligagaga/place-test/frontend
   tag: main
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 service:
   type: ClusterIP
-  port: 80
+  port: 3000
   name: frontend
-
-
-ingress:
-  enabled: true
-  entryPoints:
-    - web
-  routes:
-    - match: PathPrefix(`/`)
-      service:
-        name: frontend
-        port: 80
-    - match: PathPrefix(`/api`)
-      middlewares:
-        - auth-middleware
-      service:
-        name: backend
-        port: 8080
-
-middlewares:
-  - name: auth-middleware
-    forwardAuth:
-      address: http://auth-service/verify

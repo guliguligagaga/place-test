@@ -65,6 +65,15 @@ spec:
             - name: {{ $name | quote }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if .Values.secretsEnabled }}
+            {{- range $name, $value := .Values.secrets }}
+            - name: {{ $name | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name | quote }}
+                  key: {{ $value | quote }}
+            {{- end }}
+            {{- end}}
           livenessProbe:
             httpGet:
               path: {{ .Values.probe.livenessPath }}

@@ -1,6 +1,0 @@
-dependencies:
-- name: ingress
-  repository: file://../ingress
-  version: 0.1.0
-digest: sha256:d818389c1448f1c3fd75d21462130f840050c816250729f52cf8931ba1629f4a
-generated: "2024-09-24T23:52:52.882265+02:00"
