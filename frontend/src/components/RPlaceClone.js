@@ -140,7 +140,8 @@ const RPlaceClone = () => {
     const connectWebSocket = useCallback(() => {
         if (!token || wsRef.current) return;
 
-        const wsUrl = `ws:${window.location.origin.replace(/^https?:/, '')}/ws`;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}${window.location.host}/ws`;
         wsRef.current = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
         wsRef.current.withCredentials = false;
 
