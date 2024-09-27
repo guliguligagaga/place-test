@@ -1,0 +1,88 @@
+# deployment.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: {{ .Values.namespace }}
+  name: {{ include "kafka-t.fullname" . }}
+  labels:
+    {{- include "kafka-t.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kafka-t.fullname" . }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "kafka-t.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+        labels:
+          app.kubernetes.io/name: {{ include "kafka-t.name" . }}
+          app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: '1@kafka-t:9093'
+            - name: KAFKA_LISTENERS
+              value: "{{ .Values.config.listeners }}"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: {{ .Values.config.advertisedListeners }}
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "{{ .Values.config.interBrokerListenerName }}"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "{{ .Values.config.controllerListenerNames }}"
+            - name: KAFKA_PROCESS_ROLES
+              value: "{{ .Values.config.processRoles }}"
+            - name: CLUSTER_ID
+              value: "{{ .Values.config.clusterId }}"
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "{{ .Values.config.offsetsTopicReplicationFactor }}"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "{{ .Values.config.transactionStateLogReplicationFactor }}"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "{{ .Values.config.transactionStateLogMinIsr }}"
+            - name: KAFKA_LOG_RETENTION_HOURS
+              value: "{{ .Values.config.logRetentionHours }}"
+            - name: KAFKA_LOG_RETENTION_BYTES
+              value: "{{ .Values.config.logRetentionBytes }}"
+            - name: KAFKA_NUM_PARTITIONS
+              value: "{{ .Values.config.numPartitions }}"
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: "{{ .Values.config.defaultReplicationFactor }}"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "{{ .Values.config.autoCreateTopicsEnable }}"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "{{ .Values.config.groupInitialRebalanceDelay }}"
+            - name: KAFKA_LOG4J_LOGGERS
+              value: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+            - name: KAFKA_LOG4J_ROOT_LOGLEVEL
+              value: "INFO"
+            - name: KAFKA_TOOLS_LOG4J_LOGLEVEL
+              value: "INFO"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+  podManagementPolicy: Parallel
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "{{ .Values.persistence.accessMode }}" ]
+        storageClassName: "{{ .Values.persistence.storageClass }}"
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}

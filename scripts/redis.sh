@@ -1,0 +1,1 @@
+ helm install redis bitnami/redis -f /infra/redis/values.yaml

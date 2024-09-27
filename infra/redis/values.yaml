@@ -1,7 +1,89 @@
+# Redis Helm chart values
+
+# Architecture configuration
 architecture: standalone
+
+# Authentication settings
 auth:
   enabled: false
+
+# Master node configuration
 master:
   persistence:
     enabled: true
     size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# General configuration
+image:
+  repository: bitnami/redis
+  tag: 6.2.14
+  pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 6379
+
+# Metrics and monitoring
+metrics:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+
+# Pod disruption budget
+pdb:
+  create: true
+  minAvailable: 1
+
+# Affinity and anti-affinity rules
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - redis
+        topologyKey: kubernetes.io/hostname
+
+# Security context
+securityContext:
+  enabled: true
+  fsGroup: 1001
+  runAsUser: 1001
+
+# Readiness and liveness probes
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 5
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 5
+
+# Resource limits and requests
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
