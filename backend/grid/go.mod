@@ -5,10 +5,7 @@ go 1.23.1
 require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/segmentio/kafka-go v0.4.47
-	server v0.0.0-00010101000000-000000000000
 )
-
-replace server => ../server
 
 require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect

@@ -1,18 +1,17 @@
-package main
+package ws
 
 import (
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"log"
-	"net/http"
-	"server"
-	"sync"
-	"time"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+	"web"
 )
 
 type Clients struct {
@@ -20,7 +19,19 @@ type Clients struct {
 	clients map[int64]*websocket.Conn
 }
 
-var clients = Clients{
+func (c *Clients) Close() error {
+	c.RWMutex.Lock()
+	defer c.RWMutex.Unlock()
+	for _, conn := range c.clients {
+		err := conn.Close()
+		if err != nil {
+			log.Println("Error closing connection:", err)
+		}
+	}
+	return nil
+}
+
+var clients = &Clients{
 	clients: make(map[int64]*websocket.Conn),
 }
 
@@ -29,40 +40,25 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 }
-
 var redisClient *redis.Client
 
-func init() {
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: "redis:6379",
+func Run() {
+	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
+		r.GET("/ws", handleWebSocket)
 	})
-}
-
-func main() {
-	r := gin.Default()
-	r.GET("/ws", handleWebSocket)
-
-	s := &http.Server{
-		Addr:    "0.0.0.0:8082",
-		Handler: r,
+	r := kafka.ReaderConfig{
+		Brokers:  []string{"kafka:29092"},
+		Topic:    "grid_updates",
+		GroupID:  "ws",
+		MinBytes: 10e3, // 10KB
+		MaxBytes: 10e6, // 10MB
+		MaxWait:  500 * time.Millisecond,
 	}
-	instance := server.NewInstance()
-	instance.AddOnStart(func() error {
-		r := kafka.NewReader(kafka.ReaderConfig{
-			Brokers:  []string{"kafka:29092"},
-			Topic:    "grid_updates",
-			GroupID:  "ws",
-			MinBytes: 10e3, // 10KB
-			MaxBytes: 10e6, // 10MB
-			MaxWait:  500 * time.Millisecond,
-		})
-		instance.AddCloseOnExit(r)
-		return kafkaConsumer(r)
-	})
+	consumer := web.WithKafkaConsumer(r, kafkaConsumer)
 
-	instance.AddOnStart(s.ListenAndServe)
-	instance.AddCloseOnExit(s)
-	instance.AddCloseOnExit(redisClient)
+	instance := web.MakeServer(ginEngine, web.WithRedis, consumer)
+	instance.AddCloseOnExit(clients)
+	redisClient = instance.Redis()
 	instance.Run()
 }
 
@@ -81,12 +77,12 @@ func handleWebSocket(c *gin.Context) {
 	sendLatestStateAndUpdates(conn)
 
 	for {
-		_, msg, err := conn.ReadMessage()
+		_, _, err = conn.ReadMessage()
 		if err != nil {
 			log.Println("Read error:", err)
 			break
 		}
-		log.Printf("Received message from client %s: %s", clientID, msg)
+		//log.Printf("Received message from client %s: %s", clientID, msg)
 	}
 
 	clients.Lock()
@@ -116,8 +112,7 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	}
 }
 
-func kafkaConsumer(r *kafka.Reader) error {
-
+func kafkaConsumer(r *kafka.Reader) {
 	for {
 		m, err := r.ReadMessage(context.Background())
 		if err != nil {
@@ -136,6 +131,4 @@ func kafkaConsumer(r *kafka.Reader) error {
 		}
 		clients.RUnlock()
 	}
-
-	return nil
 }

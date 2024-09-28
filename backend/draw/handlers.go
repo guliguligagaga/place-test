@@ -1,4 +1,4 @@
-package main
+package draw
 
 import (
 	"github.com/gin-gonic/gin"
@@ -6,7 +6,7 @@ import (
 )
 
 func modifyCell(c *gin.Context, state *CellBroadcast) {
-	var drawReq DrawReq
+	var drawReq Req
 	if err := c.ShouldBindJSON(&drawReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

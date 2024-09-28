@@ -7,10 +7,7 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/segmentio/kafka-go v0.4.47
-	server v0.0.0-00010101000000-000000000000
 )
-
-replace server => ../server
 
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect

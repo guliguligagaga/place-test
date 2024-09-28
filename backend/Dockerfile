@@ -2,10 +2,9 @@ FROM golang:1.23-alpine as builder
 WORKDIR /app
 ARG SERVICE_NAME
 
-COPY ./server /server
-COPY ./${SERVICE_NAME} /
+COPY . .
 
-RUN go build -o /bin/app /
+RUN go build -o /bin/app /main/${SERVICE_NAME}
 
 FROM gcr.io/distroless/static
 COPY --from=builder /bin/app /app

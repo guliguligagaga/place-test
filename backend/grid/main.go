@@ -1,16 +1,15 @@
-package main
+package grid
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"server"
-	"strconv"
-	"time"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
+	"log"
+	"strconv"
+	"time"
+	"web"
 )
 
 var redisClient *redis.Client
@@ -20,27 +19,22 @@ type Update struct {
 	Data      string `json:"data"`
 }
 
-func main() {
-
-	r := kafka.NewReader(kafka.ReaderConfig{
+func Run() {
+	r := kafka.ReaderConfig{
 		Brokers: []string{"kafka:29092"},
 		Topic:   "grid_updates",
 		GroupID: "grid-sync-consumer-group",
-	})
-	instance := server.NewInstance()
-	instance.AddOnStart(func() error {
-		return kafkaConsumer(r)
-	})
-	instance.AddCloseOnExit(r)
+	}
 
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: "redis:6379",
-	})
-	instance.AddCloseOnExit(redisClient)
+	c := web.WithKafkaConsumer(r, kafkaConsumer)
+	instance := web.MakeServer(c, web.WithRedis)
+
+	redisClient = instance.Redis()
+
 	instance.Run()
 }
 
-func kafkaConsumer(r *kafka.Reader) error {
+func kafkaConsumer(r *kafka.Reader) {
 	ctx := context.Background()
 	for {
 		m, err := r.FetchMessage(ctx)

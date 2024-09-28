@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"github.com/gin-gonic/gin"
@@ -6,7 +6,6 @@ import (
 
 func registerRoutes(router *gin.Engine) {
 	gr := router.Group("/api/auth")
-	gr.POST("/google", googleSignIn)
-	gr.GET("/verify", verifyToken)
-	gr.GET("/validate_token", validateToken)
+	gr.POST("/signIn", signIn)
+	gr.GET("/access", access)
 }

@@ -1,17 +1,14 @@
-package main
+package draw
 
 import (
 	"context"
-	"net/http"
-	"os"
-	"server"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/segmentio/kafka-go"
+	"time"
+	"web"
 )
 
-type DrawReq struct {
+type Req struct {
 	X     int `json:"x"`
 	Y     int `json:"y"`
 	Color int `json:"color"`
@@ -19,9 +16,20 @@ type DrawReq struct {
 
 var ctx = context.Background()
 
-func main() {
+func Run() {
+	kafkaWriter := makeWriter()
+	gridHolder := NewGridHolder(kafkaWriter)
+	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
+		r.POST("/draw", func(c *gin.Context) {
+			modifyCell(c, gridHolder)
+		})
+	})
+	instance := web.MakeServer(ginEngine, web.WithKafkaWriter(kafkaWriter))
+	instance.Run()
+}
 
-	kafkaWriter := &kafka.Writer{
+func makeWriter() *kafka.Writer {
+	return &kafka.Writer{
 		Addr:                   kafka.TCP("kafka:29092"),
 		Topic:                  "grid_updates",
 		Balancer:               &kafka.LeastBytes{},
@@ -32,29 +40,4 @@ func main() {
 		RequiredAcks:           kafka.RequireOne,
 		Compression:            kafka.Snappy,
 	}
-
-	instance := server.NewInstance()
-	instance.AddCloseOnExit(kafkaWriter)
-
-	gridHolder := NewGridHolder(kafkaWriter)
-	router := gin.Default()
-	router.POST("/draw", func(c *gin.Context) {
-		modifyCell(c, gridHolder)
-	})
-
-	address := getEnv("BIND_ADDRESS", "0.0.0.0:5001")
-	s := &http.Server{
-		Addr:    address,
-		Handler: router,
-	}
-
-	instance.AddOnStart(s.ListenAndServe)
-	instance.Run()
-}
-
-func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return fallback
 }
