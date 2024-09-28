@@ -4,7 +4,7 @@ ARG SERVICE_NAME
 
 COPY . .
 
-RUN go build -o /bin/app /backend/main/${SERVICE_NAME}
+RUN go build -o /bin/app /main/${SERVICE_NAME}/main.go
 
 FROM gcr.io/distroless/static
 COPY --from=builder /bin/app /app
