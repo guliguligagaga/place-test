@@ -1,18 +1,18 @@
-name: Build and Push ws Docker Image
+name: Build and Push grid Docker Image
 on:
   push:
     branches: [ main ]
     paths:
-      - 'backend/ws'
+      - 'backend/grid'
   pull_request:
     branches: [ main ]
     paths:
-      - 'backend/ws'
+      - 'backend/grid'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/ws
+  IMAGE_NAME: ${{ github.repository }}/grid
 
 jobs:
   build:
@@ -43,12 +43,12 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-    - name: Build and push ws
+    - name: Build and push grid
       uses: docker/build-push-action@v4
       with:
         context: ./backend
         platforms: linux/amd64,linux/arm64
-        build-args: SERVICE_NAME=ws
+        build-args: SERVICE_NAME=grid
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
