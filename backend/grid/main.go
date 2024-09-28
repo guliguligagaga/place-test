@@ -7,6 +7,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
 	"log"
+	"os"
 	"strconv"
 	"time"
 	"web"
@@ -20,8 +21,9 @@ type Update struct {
 }
 
 func Run() {
+	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
 	r := kafka.ReaderConfig{
-		Brokers: []string{"kafka:29092"},
+		Brokers: []string{kafkaUrl},
 		Topic:   "grid_updates",
 		GroupID: "grid-sync-consumer-group",
 	}

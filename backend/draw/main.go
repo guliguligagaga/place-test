@@ -2,8 +2,10 @@ package draw
 
 import (
 	"context"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/segmentio/kafka-go"
+	"os"
 	"time"
 	"web"
 )
@@ -29,8 +31,9 @@ func Run() {
 }
 
 func makeWriter() *kafka.Writer {
+	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
 	return &kafka.Writer{
-		Addr:                   kafka.TCP("kafka:29092"),
+		Addr:                   kafka.TCP(os.Getenv(kafkaUrl)),
 		Topic:                  "grid_updates",
 		Balancer:               &kafka.LeastBytes{},
 		AllowAutoTopicCreation: true,

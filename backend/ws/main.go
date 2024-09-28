@@ -9,6 +9,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 	"web"
@@ -46,8 +47,9 @@ func Run() {
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
 		r.GET("/ws", handleWebSocket)
 	})
+	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
 	r := kafka.ReaderConfig{
-		Brokers:  []string{"kafka:29092"},
+		Brokers:  []string{kafkaUrl},
 		Topic:    "grid_updates",
 		GroupID:  "ws",
 		MinBytes: 10e3, // 10KB
