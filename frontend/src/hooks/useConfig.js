@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 const CACHE_KEY = 'app_config';
-const CACHE_EXPIRATION = 1000 * 60 * 60 * 1; // 1 hour
+const CACHE_EXPIRATION = 1000 * 60 * 60; // 1 hour
 
 const useConfig = () => {
   const [config, setConfig] = useState(null);
@@ -30,7 +30,7 @@ const useConfig = () => {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        
+
         // Cache the new config
         localStorage.setItem(CACHE_KEY, JSON.stringify({
           data,

@@ -1,14 +1,14 @@
-import { useCallback, useState, useEffect, useReducer } from 'react';
+import { useCallback, useReducer } from 'react';
 
 const GRID_SIZE = 100;
 
 const gridReducer = (state, action) => {
     switch (action.type) {
         case 'UPDATE_CELL':
-            const newGrid = new Uint8Array(state);
+            const updatedGrid = state.slice();
             const index = action.y * GRID_SIZE + action.x;
-            newGrid[index] = action.colorIndex;
-            return newGrid;
+            updatedGrid[index] = action.colorIndex;
+            return updatedGrid;
         case 'SET_GRID':
             return action.grid;
         default:
@@ -19,12 +19,8 @@ const gridReducer = (state, action) => {
 const useGrid = () => {
     const [grid, dispatch] = useReducer(gridReducer, new Uint8Array(GRID_SIZE * GRID_SIZE));
 
-    useEffect(() => {
-        console.log('Grid initialized with size:', grid.length);
-    }, [grid]);
-
     const updateGrid = useCallback((x, y, colorIndex) => {
-        dispatch({ type: 'UPDATE_CELL', x, y, colorIndex });
+        dispatch({ type: 'UPDATE_CELL',x, y, colorIndex });
         console.log(`Grid updated at (${x}, ${y}) with color ${colorIndex}`);
     }, []);
 
