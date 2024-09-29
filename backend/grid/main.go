@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
 	"log"
@@ -29,7 +30,7 @@ func Run() {
 	}
 
 	c := web.WithKafkaConsumer(r, kafkaConsumer)
-	instance := web.MakeServer(c, web.WithRedis)
+	instance := web.MakeServer(c, web.WithRedis, web.WithGinEngine(func(r *gin.Engine) {}))
 
 	redisClient = instance.Redis()
 
