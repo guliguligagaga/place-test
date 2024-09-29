@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
@@ -43,8 +44,9 @@ var WithKafkaConsumer = func(cfg kafka.ReaderConfig, f func(k *kafka.Reader)) fu
 }
 
 var WithRedis = func(s *Server) {
+	url := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
 	s.redis = redis.NewClient(&redis.Options{
-		Addr: "redis:6379",
+		Addr: url,
 	})
 	s.AddPingFunction(func() error {
 		return s.redis.Ping(s.redis.Context()).Err()
