@@ -29,9 +29,8 @@ func Run() {
 
 func makeWriter() *kafka.Writer {
 	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
-	fmt.Printf("Kafka URL: %s\n", kafkaUrl)
 	return &kafka.Writer{
-		Addr:                   kafka.TCP(os.Getenv(kafkaUrl)),
+		Addr:                   kafka.TCP(kafkaUrl),
 		Topic:                  "grid_updates",
 		Balancer:               &kafka.LeastBytes{},
 		AllowAutoTopicCreation: true,
