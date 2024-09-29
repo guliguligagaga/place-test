@@ -116,7 +116,7 @@ const RPlaceClone = () => {
             return
         }
 
-        const ws = new WebSocket(`ws://localhost:8082/ws?token=${token}`);
+        const ws = new WebSocket(`${window.location.origin.replace(/^http/, 'ws')}/ws?token=${token}`);
 
         ws.onopen = () => {
             console.log('WebSocket connected');
