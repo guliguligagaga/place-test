@@ -67,7 +67,6 @@ const RPlaceClone = () => {
     const [grid, setGrid, updateGrid] = useGrid(GRID_SIZE * GRID_SIZE);
     const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
-    const [user, setUser] = useState(null);
     const [token, setToken] = useState(() => localStorage.getItem('token'));
     const [isLoading, setIsLoading] = useState(false);
     const [wsError, setWsError] = useState(null);
@@ -299,7 +298,6 @@ const RPlaceClone = () => {
     
     const handleSignOut = useCallback(() => {
         googleLogout();
-        setUser(null);
         setToken(null);
         setGrid(new Uint8Array(GRID_SIZE * GRID_SIZE));
         if (wsRef.current) wsRef.current.close();
@@ -351,7 +349,7 @@ const RPlaceClone = () => {
             <Header>r/place Clone</Header>
             {isLoading ? (
                 <div>Loading...</div>
-            ) : user ? (
+            ) : token ? (
                 <>
                     <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
                     <ColorPickerContainer>
