@@ -22,7 +22,7 @@ func Run() {
 	kafkaWriter := makeWriter()
 	gridHolder := NewGridHolder(kafkaWriter)
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
-		r.POST("/draw", func(c *gin.Context) {
+		r.POST("/api/draw", func(c *gin.Context) {
 			modifyCell(c, gridHolder)
 		})
 	})
