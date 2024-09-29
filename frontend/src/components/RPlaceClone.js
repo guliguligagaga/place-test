@@ -82,10 +82,8 @@ const RPlaceClone = () => {
     const reconnectAttemptsRef = React.useRef(0);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
         const storedToken = localStorage.getItem('token');
-        if (storedUser && storedToken) {
-            setUser(JSON.parse(storedUser));
+        if (storedToken) {
             setToken(storedToken);
         }
     }, []);
