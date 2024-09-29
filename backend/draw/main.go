@@ -1,7 +1,6 @@
 package draw
 
 import (
-	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/segmentio/kafka-go"
@@ -15,8 +14,6 @@ type Req struct {
 	Y     int `json:"y"`
 	Color int `json:"color"`
 }
-
-var ctx = context.Background()
 
 func Run() {
 	kafkaWriter := makeWriter()
@@ -32,6 +29,7 @@ func Run() {
 
 func makeWriter() *kafka.Writer {
 	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
+	fmt.Printf("Kafka URL: %s\n", kafkaUrl)
 	return &kafka.Writer{
 		Addr:                   kafka.TCP(os.Getenv(kafkaUrl)),
 		Topic:                  "grid_updates",

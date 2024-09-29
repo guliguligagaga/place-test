@@ -1,6 +1,7 @@
 package draw
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/segmentio/kafka-go"
 	"log"
@@ -25,7 +26,7 @@ func (gh *CellBroadcast) updateCell(req *Req) error {
 		log.Printf("Failed to marshal update message: %v", err)
 		return err
 	}
-	err = gh.writer.WriteMessages(ctx, kafka.Message{
+	err = gh.writer.WriteMessages(context.Background(), kafka.Message{
 		Value: message,
 	})
 	return err
