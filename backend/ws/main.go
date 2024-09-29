@@ -1,9 +1,7 @@
 package ws
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -99,29 +97,21 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 
 	epoch := time.Now().UnixMilli() / 60_000
 	// Get latest epoch
-	latestEpoch, err := redisClient.Get(ctx, "latest_epoch").Result()
-	if err != nil {
-		log.Println("Error getting latest epoch:", err)
-	}
-	err = conn.WriteMessage(websocket.TextMessage, []byte(latestEpoch))
-	if err != nil {
-		log.Println("Error sending latest epoch:", err)
-	}
+	//latestEpoch, err := redisClient.Get(ctx, "latest_epoch").Result()
+	//if err != nil {
+	//	log.Println("Error getting latest epoch:", err)
+	//}
+	//err = conn.WriteMessage(websocket.TextMessage, []byte(latestEpoch))
+	//if err != nil {
+	//	log.Println("Error sending latest epoch:", err)
+	//}
 
 	// get latest state
-	int64s, err := redisClient.BitField(ctx, "grid", "get", "u4", "0", "0").Result()
+	res, err := redisClient.Get(ctx, "grid").Result()
 	if err != nil {
 		log.Println("Error getting latest state:", err)
 	}
-	buf := new(bytes.Buffer)
-	for _, i := range int64s {
-		err = binary.Write(buf, binary.LittleEndian, i)
-		if err != nil {
-			log.Println("Error writing to buffer:", err)
-			break
-		}
-	}
-	err = conn.WriteMessage(websocket.TextMessage, buf.Bytes())
+	err = conn.WriteMessage(websocket.BinaryMessage, []byte(res))
 	if err != nil {
 		log.Println("Error sending latest state:", err)
 	}

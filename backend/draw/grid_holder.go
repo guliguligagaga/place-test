@@ -20,23 +20,15 @@ func NewGridHolder(writer *kafka.Writer) *CellBroadcast {
 }
 
 type msg struct {
-	Time int64  `json:"time,omitempty"`
-	Data string `json:"data,omitempty"`
+	Req
+	Time int64 `json:"time,omitempty"`
 }
 
 func (gh *CellBroadcast) updateCell(req *Req) error {
-	message, err := json.Marshal(req)
-	if err != nil {
-		log.Printf("Failed to marshal update message: %v", err)
-		return err
-	}
-
-	m := msg{
+	m2, err := json.Marshal(&msg{
+		Req:  *req,
 		Time: time.Now().UnixMilli(),
-		Data: string(message),
-	}
-
-	m2, err := json.Marshal(&m)
+	})
 	if err != nil {
 		log.Printf("Failed to marshal update message: %v", err)
 		return err

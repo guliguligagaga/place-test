@@ -6,7 +6,7 @@ const MAX_ZOOM = 40;
 const MIN_ZOOM = 0.1;
 const QUADRANT_SIZE = 32;
 
-const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, subscribedQuadrants, onSubscribe, onUnsubscribe, connectedClients }) => {
+const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClients }) => {
     const canvasRef = useRef(null);
     const [zoom, setZoom] = useState(INITIAL_ZOOM);
     const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -72,12 +72,12 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, sub
 
         ctx.restore();
 
-        // Draw connected clients count
-        ctx.fillStyle = 'black';
-        ctx.font = '14px Arial';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(`Connected Clients: ${connectedClients}`, 10, 10);
+        // // Draw connected clients count
+        // ctx.fillStyle = 'black';
+        // ctx.font = '14px Arial';
+        // ctx.textAlign = 'left';
+        // ctx.textBaseline = 'top';
+        // ctx.fillText(`Connected Clients: ${connectedClients}`, 10, 10);
 
         // Highlight hovered pixel
         if (hoveredPixel) {
@@ -150,53 +150,53 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, sub
         lastMousePosRef.current = { x: event.clientX, y: event.clientY };
     }, []);
 
-    const handleMouseMove = useCallback((event) => {
-        if (isDragging) {
-            const dx = event.clientX - lastMousePosRef.current.x;
-            const dy = event.clientY - lastMousePosRef.current.y;
-            
-            setOffset((prevOffset) => {
-                const newOffsetX = prevOffset.x - dx / zoom;
-                const newOffsetY = prevOffset.y - dy / zoom;
-                
-                // Calculate the maximum allowed offset
-                const maxOffsetX = size - size / zoom;
-                const maxOffsetY = size - size / zoom;
-                
-                // Clamp the offset values
-                return {
-                    x: Math.max(0, Math.min(newOffsetX, maxOffsetX)),
-                    y: Math.max(0, Math.min(newOffsetY, maxOffsetY))
-                };
-            });
+     const handleMouseMove = useCallback((event) => {
+         if (isDragging) {
+             const dx = event.clientX - lastMousePosRef.current.x;
+             const dy = event.clientY - lastMousePosRef.current.y;
 
-            lastMousePosRef.current = { x: event.clientX, y: event.clientY };
-        } else {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
+             setOffset((prevOffset) => {
+                 const newOffsetX = prevOffset.x - dx / zoom;
+                 const newOffsetY = prevOffset.y - dy / zoom;
 
-            const rect = canvas.getBoundingClientRect();
-            const canvasSize = rect.width;
-            const scaleFactor = canvasSize / size;
-            const x = Math.floor((event.clientX - rect.left) / (scaleFactor * zoom) + offset.x);
-            const y = Math.floor((event.clientY - rect.top) / (scaleFactor * zoom) + offset.y);
+                 // Calculate the maximum allowed offset
+                 const maxOffsetX = size - size / zoom;
+                 const maxOffsetY = size - size / zoom;
 
-            if (x >= 0 && x < size && y >= 0 && y < size) {
-                setHoveredPixel({ x, y });
-            } else {
-                setHoveredPixel(null);
-            }
-        }
-    }, [isDragging, zoom, size, offset]);
+                 // Clamp the offset values
+                 return {
+                     x: Math.max(0, Math.min(newOffsetX, maxOffsetX)),
+                     y: Math.max(0, Math.min(newOffsetY, maxOffsetY))
+                 };
+             });
+
+             lastMousePosRef.current = { x: event.clientX, y: event.clientY };
+         } else {
+             const canvas = canvasRef.current;
+             if (!canvas) return;
+
+             const rect = canvas.getBoundingClientRect();
+             const canvasSize = rect.width;
+             const scaleFactor = canvasSize / size;
+             const x = Math.floor((event.clientX - rect.left) / (scaleFactor * zoom) + offset.x);
+             const y = Math.floor((event.clientY - rect.top) / (scaleFactor * zoom) + offset.y);
+
+             if (x >= 0 && x < size && y >= 0 && y < size) {
+                 setHoveredPixel({ x, y });
+             } else {
+                 setHoveredPixel(null);
+             }
+         }
+     }, [isDragging, zoom, size, offset]);
 
     const handleMouseUp = useCallback(() => {
         setIsDragging(false);
     }, []);
 
-    const getQuadrantId = useCallback((x, y) => {
-        const quadrant = quadrants.find(q => x >= q.x && x < q.x + QUADRANT_SIZE && y >= q.y && y < q.y + QUADRANT_SIZE);
-        return quadrant ? quadrant.id : null;
-    }, [quadrants]);
+    // const getQuadrantId = useCallback((x, y) => {
+    //     const quadrant = quadrants.find(q => x >= q.x && x < q.x + QUADRANT_SIZE && y >= q.y && y < q.y + QUADRANT_SIZE);
+    //     return quadrant ? quadrant.id : null;
+    // }, [quadrants]);
 
     const handleClick = useCallback((event) => {
         const canvas = canvasRef.current;
@@ -211,12 +211,12 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, sub
         if (x >= 0 && x < size && y >= 0 && y < size) {
             onPixelClick(x, y);
 
-            const quadrantId = getQuadrantId(x, y);
-            if (quadrantId !== null && !subscribedQuadrants.has(quadrantId)) {
-                onSubscribe(quadrantId);
-            }
+            // const quadrantId = getQuadrantId(x, y);
+            // if (quadrantId !== null && !subscribedQuadrants.has(quadrantId)) {
+            //     onSubscribe(quadrantId);
+            // }
         }
-    }, [onPixelClick, size, zoom, offset, subscribedQuadrants, onSubscribe, getQuadrantId]);
+    }, [onPixelClick, size, zoom, offset]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -228,39 +228,39 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, sub
         };
     }, [handleWheel]);
 
-    const getVisibleQuadrants = useCallback(() => {
-        const visibleQuadrants = [];
-        const visibleWidth = size / zoom;
-        const visibleHeight = size / zoom;
+    // const getVisibleQuadrants = useCallback(() => {
+    //     const visibleQuadrants = [];
+    //     const visibleWidth = size / zoom;
+    //     const visibleHeight = size / zoom;
+    //
+    //     const startX = offset.x;
+    //     const startY = offset.y;
+    //     const endX = offset.x + visibleWidth;
+    //     const endY = offset.y + visibleHeight;
+    //
+    //     quadrants.forEach(quadrant => {
+    //         if (quadrant.x < endX && quadrant.x + QUADRANT_SIZE > startX &&
+    //             quadrant.y < endY && quadrant.y + QUADRANT_SIZE > startY) {
+    //             visibleQuadrants.push(quadrant.id);
+    //         }
+    //     });
+    //
+    //     return visibleQuadrants;
+    // }, [offset, zoom, size, quadrants]);
 
-        const startX = offset.x;
-        const startY = offset.y;
-        const endX = offset.x + visibleWidth;
-        const endY = offset.y + visibleHeight;
-
-        quadrants.forEach(quadrant => {
-            if (quadrant.x < endX && quadrant.x + QUADRANT_SIZE > startX &&
-                quadrant.y < endY && quadrant.y + QUADRANT_SIZE > startY) {
-                visibleQuadrants.push(quadrant.id);
-            }
-        });
-
-        return visibleQuadrants;
-    }, [offset, zoom, size, quadrants]);
-
-    useEffect(() => {
-        const visibleQuadrants = getVisibleQuadrants();
-        visibleQuadrants.forEach(quadrantId => {
-            if (!subscribedQuadrants.has(quadrantId)) {
-                onSubscribe(quadrantId);
-            }
-        });
-        subscribedQuadrants.forEach(quadrantId => {
-            if (!visibleQuadrants.includes(quadrantId)) {
-                onUnsubscribe(quadrantId);
-            }
-        });
-    }, [offset, zoom, subscribedQuadrants, onSubscribe, onUnsubscribe, getVisibleQuadrants]);
+    // useEffect(() => {
+    //     const visibleQuadrants = getVisibleQuadrants();
+    //     visibleQuadrants.forEach(quadrantId => {
+    //         if (!subscribedQuadrants.has(quadrantId)) {
+    //             onSubscribe(quadrantId);
+    //         }
+    //     });
+    //     subscribedQuadrants.forEach(quadrantId => {
+    //         if (!visibleQuadrants.includes(quadrantId)) {
+    //             onUnsubscribe(quadrantId);
+    //         }
+    //     });
+    // }, [offset, zoom, subscribedQuadrants, onSubscribe, onUnsubscribe, getVisibleQuadrants]);
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%', aspectRatio: '1 / 1' }}>
@@ -287,18 +287,18 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, quadrants, sub
 });
 
 PixelGrid.propTypes = {
-    grid: PropTypes.arrayOf(PropTypes.number).isRequired,
+    grid: PropTypes.object.isRequired,
     onPixelClick: PropTypes.func.isRequired,
     size: PropTypes.number.isRequired,
     colors: PropTypes.arrayOf(PropTypes.string).isRequired,
-    quadrants: PropTypes.arrayOf(PropTypes.shape({
-        id: PropTypes.number.isRequired,
-        x: PropTypes.number.isRequired,
-        y: PropTypes.number.isRequired,
-    })).isRequired,
-    subscribedQuadrants: PropTypes.instanceOf(Set).isRequired,
-    onSubscribe: PropTypes.func.isRequired,
-    onUnsubscribe: PropTypes.func.isRequired,
+    // quadrants: PropTypes.arrayOf(PropTypes.shape({
+    //     id: PropTypes.number.isRequired,
+    //     x: PropTypes.number.isRequired,
+    //     y: PropTypes.number.isRequired,
+    // })).isRequired,
+    //subscribedQuadrants: PropTypes.instanceOf(Set).isRequired,
+    //onSubscribe: PropTypes.func.isRequired,
+    //onUnsubscribe: PropTypes.func.isRequired,
     connectedClients: PropTypes.number.isRequired,
 };
 

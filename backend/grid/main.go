@@ -56,14 +56,9 @@ func kafkaConsumer(r *kafka.Reader) {
 		// Store update in Redis
 		updateTime := time.Now().UnixMilli()
 		updateEpoch := updateTime / 60_000
-		update := Update{
-			Timestamp: uint64(updateTime),
-			Data:      string(m.Value),
-		}
-		updateJSON, _ := json.Marshal(update)
 		err = redisClient.ZAdd(ctx, fmt.Sprintf("updates:%d", updateEpoch), &redis.Z{
-			Score:  float64(update.Timestamp),
-			Member: string(updateJSON),
+			Score:  float64(m.Time.UnixMilli()),
+			Member: string(m.Value),
 		}).Err()
 		if err != nil {
 			log.Println("Error storing update in Redis:", err)
@@ -74,11 +69,18 @@ func kafkaConsumer(r *kafka.Reader) {
 			log.Println("Error updating latest state in Redis:", err)
 		}
 		d := data{}
-		_ = json.Unmarshal([]byte(update.Data), &d)
+		_ = json.Unmarshal(m.Value, &d)
 		gridKey := "grid"
-		bitValue := d.Color // Set the bit value based on your requirements
-		bitOffset := (d.Y*100 + d.X) * 4
-		_, err = redisClient.BitField(ctx, gridKey, "SET", "u4", bitOffset, bitValue).Result()
+		byteIndex := (d.Y*100 + d.X) / 2
+		isUpperNibble := d.X%2 == 0
+
+		var offset int64
+		if isUpperNibble {
+			offset = int64(byteIndex * 8)
+		} else {
+			offset = int64(byteIndex*8 + 4)
+		}
+		_, err = redisClient.BitField(ctx, gridKey, "SET", "u4", offset, d.Color).Result()
 		if err != nil {
 			log.Println("Error updating grid status in Redis:", err)
 		}

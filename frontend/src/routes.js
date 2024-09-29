@@ -12,7 +12,7 @@ const AppRoutes = () => {
             <Route path="/health" element={<h3>ok</h3>} />
             <Route path="/" element={
                 <React.StrictMode>
-                    <GoogleOAuthProvider clientId={config.googleClientId}>
+                    <GoogleOAuthProvider clientId="4569410916-mf7l68sh509mrlpu3ih7op7b6dgg4tqh.apps.googleusercontent.com">
                         <RPlaceClone />
                     </GoogleOAuthProvider>
                 </React.StrictMode>

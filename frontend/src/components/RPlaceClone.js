@@ -64,7 +64,7 @@ const GridContainer = styled.div`
 `;
 
 const RPlaceClone = () => {
-    const [grid, setGrid, updateGrid] = useGrid(GRID_SIZE * GRID_SIZE);
+    const [grid, setGrid, updateGrid] = useGrid();
     const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
     const [token, setToken] = useState(() => localStorage.getItem('token'));
@@ -72,14 +72,33 @@ const RPlaceClone = () => {
     const [wsError, setWsError] = useState(null);
     const [reconnectDelay, setReconnectDelay] = useState(1000);
     const [initialFetchDone, setInitialFetchDone] = useState(false);
-    const [quadrants, setQuadrants] = useState([]);
-    const [subscribedQuadrants, setSubscribedQuadrants] = useState(new Set());
     const [connectedClients, setConnectedClients] = useState(0);
     const [isSignedOut, setIsSignedOut] = useState(false);
 
-    const wsRef = React.useRef(null);
-    const lastActivityRef = React.useRef(Date.now());
     const reconnectAttemptsRef = React.useRef(0);
+    const wsRef = React.useRef(null);
+    const lastUpdateRef = React.useRef(null);
+
+    const debouncedUpdateGrid = useCallback(
+        debounce((x, y, color) => {
+            updateGrid(x, y, color);
+        }, 50),
+        [updateGrid])
+
+    const handlePixel = useCallback((update) => {
+        const { x, y, color, Time } = update;
+
+        // Check if this update is newer than the last one we processed
+        if (!lastUpdateRef.current || Time > lastUpdateRef.current) {
+            lastUpdateRef.current = Time;
+            debouncedUpdateGrid(x, y, color);
+
+            console.log(`Index: - ${y * GRID_SIZE + x}`);
+            console.log(`x: ${x}, y: ${y}, colorIndex: - ${color}`);
+        } else {
+            console.log('Skipped duplicate or older update');
+        }
+    }, [debouncedUpdateGrid]);
 
     useEffect(() => {
         const storedToken = localStorage.getItem('token');
@@ -88,71 +107,37 @@ const RPlaceClone = () => {
         }
     }, []);
 
-    const fetchGrid = useCallback(async () => {
-        if (!token || initialFetchDone) return;
-        console.log('Fetching grid...');
-
-        try {
-            setIsLoading(true);
-            const response = await fetch(`${window.location.origin}/api/grid`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-            });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch grid: ${response.status} ${response.statusText}`);
-            }
-            const data = await response.arrayBuffer();
-            const compressedGrid = new Uint8Array(data);
-            console.log('Fetched compressed grid data:', compressedGrid);
-
-            if (compressedGrid.length !== GRID_SIZE * GRID_SIZE / 2) {
-                console.error(`Invalid grid size: expected ${GRID_SIZE * GRID_SIZE / 2}, got ${compressedGrid.length}`);
-                return;
-            }
-
-            // Unpack the 4-bit format into 8-bit format
-            const unpackedGrid = new Uint8Array(GRID_SIZE * GRID_SIZE);
-            for (let i = 0; i < compressedGrid.length; i++) {
-                const byte = compressedGrid[i];
-                const x1 = i * 2;
-                const x2 = x1 + 1;
-                const y = Math.floor(i / (GRID_SIZE / 2));
-                const color2 = byte & 0x0F;
-                const color1 = (byte & 0xF0) >> 4;
-                unpackedGrid[y * GRID_SIZE + x1] = color1;
-                unpackedGrid[y * GRID_SIZE + x2] = color2;
-            }
-            console.log('Unpacked grid data:', unpackedGrid);
-            setGrid(unpackedGrid);
-            setInitialFetchDone(true);
-        } catch (err) {
-            console.error('Error fetching grid:', err);
-            setError('Failed to fetch grid: ' + err.message);
-        } finally {
-            console.log('Grid fetch completed');
-            setIsLoading(false);
-        }
-    }, [token, setGrid, initialFetchDone]);
-
     const connectWebSocket = useCallback(() => {
         if (isSignedOut) {
             console.log('User is signed out. Skipping WebSocket connection.');
             return;
         }
         if (wsRef.current) {
-            wsRef.current.close();
+            return
         }
 
-        const ws = new WebSocket(`${window.location.origin.replace(/^http/, 'ws')}/ws?token=${token}`);
+        const ws = new WebSocket(`ws://localhost:8082/ws?token=${token}`);
 
         ws.onopen = () => {
             console.log('WebSocket connected');
         };
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            updateGrid(data.x, data.y, data.color);
+        ws.onmessage = async (event) => {
+            console.log('Received message:', event);
+            const data = event.data
+            if (event.type === "message" && typeof(data) === "string") {
+                console.log('Received pixel update:', event.data);
+                const update = JSON.parse(event.data)
+                handlePixel(update)
+            } else if (data instanceof Blob) {
+                // Handle Blob data (grid state)
+                console.log('Received grid data as Blob');
+                const arrayBuffer = await data.arrayBuffer();
+                setGrid(arrayBuffer);
+                setInitialFetchDone(true)
+            } else {
+                console.warn('Received unknown message format:', event.data);
+            }
         };
 
         ws.onerror = (error) => {
@@ -167,12 +152,13 @@ const RPlaceClone = () => {
                     reconnectWebSocket();
                 } else {
                     setError('Unable to connect to the server. Please try again later.');
+                    setIsSignedOut(true)
                 }
             }, 1000 * Math.pow(2, reconnectAttemptsRef.current));
         };
 
         wsRef.current = ws;
-    }, [token, updateGrid, isSignedOut]);
+    }, [token, updateGrid, isSignedOut, handlePixel]);
 
     const reconnectWebSocket = useCallback(() => {
         if (isSignedOut) {
@@ -198,7 +184,6 @@ const RPlaceClone = () => {
     useEffect(() => {
         if (token && !initialFetchDone && !isSignedOut) {
             console.log('Token available, fetching grid and connecting WebSocket');
-            fetchGrid();
             reconnectAttemptsRef.current = 0;
             return connectWebSocket();
         } else if (!token || isSignedOut) {
@@ -206,10 +191,9 @@ const RPlaceClone = () => {
             if (wsRef.current) {
                 wsRef.current.close();
             }
-            setGrid(new Uint8Array(GRID_SIZE * GRID_SIZE));
             setInitialFetchDone(false);
         }
-    }, [token, fetchGrid, connectWebSocket, initialFetchDone, setGrid, isSignedOut]);
+    }, [token, connectWebSocket, initialFetchDone, setGrid, isSignedOut]);
 
 
     const handleGoogleSignIn = useCallback(async (tokenResponse) => {
@@ -231,9 +215,8 @@ const RPlaceClone = () => {
             if (res.ok) {
                 const data = await res.json();
                 setToken(data.token);
-                localStorage.setItem('token', data.token);
-                await fetchGrid();
-                connectWebSocket();
+                localStorage.setItem("token", data.token)
+                //connectWebSocket();
             } else {
                 throw new Error('Failed to authenticate with the server');
             }
@@ -242,7 +225,7 @@ const RPlaceClone = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [fetchGrid, connectWebSocket]);
+    }, [connectWebSocket]);
 
     useEffect(() => {
         const checkTokenExpiration = () => {
@@ -262,23 +245,6 @@ const RPlaceClone = () => {
 
         return () => clearInterval(intervalId);
     }, [token]);
-
-    const handleActivity = useMemo(() => debounce(() => {
-        lastActivityRef.current = Date.now();
-        if (wsRef.current && wsRef.current.readyState === WebSocket.CLOSED) {
-            connectWebSocket();
-        }
-    }, 200), [connectWebSocket]);
-
-    useEffect(() => {
-        window.addEventListener('mousemove', handleActivity);
-        window.addEventListener('keydown', handleActivity);
-
-        return () => {
-            window.removeEventListener('mousemove', handleActivity);
-            window.removeEventListener('keydown', handleActivity);
-        };
-    }, [handleActivity]);
 
     const handlePixelUpdate = useCallback(async (x, y) => {
         if (!token) {
@@ -316,23 +282,6 @@ const RPlaceClone = () => {
         localStorage.removeItem('token');
     }, [setGrid]);
 
-    const subscribeToQuadrant = useCallback((quadrantId) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({type: 'Subscribe', payload: {quadrant_id: quadrantId}}));
-            setSubscribedQuadrants(prev => new Set(prev).add(quadrantId));
-        }
-    }, []);
-
-    const unsubscribeFromQuadrant = useCallback((quadrantId) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({type: 'Unsubscribe', payload: {quadrant_id: quadrantId}}));
-            setSubscribedQuadrants(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(quadrantId);
-                return newSet;
-            });
-        }
-    }, []);
 
     const renewToken = async () => {
         try {
@@ -374,10 +323,6 @@ const RPlaceClone = () => {
                             onPixelClick={handlePixelUpdate}
                             size={GRID_SIZE}
                             colors={COLORS}
-                            quadrants={quadrants}
-                            subscribedQuadrants={subscribedQuadrants}
-                            onSubscribe={subscribeToQuadrant}
-                            onUnsubscribe={unsubscribeFromQuadrant}
                             connectedClients={connectedClients}
                         />
                     </GridContainer>
