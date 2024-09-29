@@ -3,6 +3,7 @@ package auth
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -46,7 +47,26 @@ func signIn(c *gin.Context) {
 func access(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
-		tokenString = c.Query("token")
+		// Extract forwarded URI
+		r := c.Request
+		forwardedURI := r.Header.Get("X-Forwarded-Uri")
+		log.Printf("X-Forwarded-Uri: %s", forwardedURI)
+
+		// Parse the forwarded URI to extract query parameters
+		parsedURL, err := url.Parse(forwardedURI)
+		if err != nil {
+			log.Printf("Error parsing forwarded URI: %v", err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		// Extract query parameters
+		queryParams := parsedURL.Query()
+		for key, values := range queryParams {
+			log.Printf("Query param: %s = %v", key, values)
+		}
+
+		tokenString = queryParams.Get("token")
 	} else {
 		tokenString = tokenString[len("Bearer "):]
 	}
