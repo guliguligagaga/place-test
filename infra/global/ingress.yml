@@ -122,7 +122,15 @@ metadata:
   namespace: r-clone
 spec:
   forwardAuth:
-    address: "http://auth/api/auth/verify"
+    address: http://auth.r-clone.svc.cluster.local:8080/api/auth/access
+    trustForwardHeader: true
+    authResponseHeaders:
+      - X-Auth-User
+    authRequestHeaders:
+      - "Accept"
+      - "Authorization"
+    tls:
+      insecureSkipVerify: true
 
 ---
 apiVersion: traefik.io/v1alpha1
@@ -142,10 +150,39 @@ spec:
 
 ---
 apiVersion: traefik.io/v1alpha1
-kind: Middleware
+kind: IngressRoute
 metadata:
-  name: test-auth
+  name: websocket-route
   namespace: r-clone
 spec:
-  forwardAuth:
-    address: "http://auth/api/auth/verify"
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`guliguli.work`) && PathPrefix(`/ws`)
+      services:
+        - kind: Service
+          name: ws
+          port: 8080
+      middlewares:
+        - name: test-auth
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: draw-route
+  namespace: r-clone
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`guliguli.work`) && PathPrefix(`/api/draw`)
+      services:
+        - kind: Service
+          name: draw
+          port: 8080
+      middlewares:
+        - name: test-auth

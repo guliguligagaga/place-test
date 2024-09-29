@@ -1,0 +1,19 @@
+replicaCount: 1
+namespace: r-clone
+
+generic-go-service:
+  image:
+    repository: ghcr.io/guliguligagaga/place-test/grid
+    tag: main
+    pullPolicy: Always
+  service:
+    port: 8080
+    name: grid
+  kafka:
+    enabled: true
+    url: "kafka-t"
+    port: 9092
+  redisdb:
+    enabled: trus
+    hostname: redis-master
+    port: 6379

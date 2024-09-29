@@ -12,7 +12,5 @@ generic-go-service:
   env:
     GIN_MODE: release
     GOOGLE_CLIENT_ID: 4569410916-b1reualmp2uqi9qt0ktrsh8ubv6bdsvu.apps.googleusercontent.com
-
-secretsEnabled: true
-secrets:
-  jwt-seed: JWT_SECRET
+  secrets:
+    jwt-seed: JWT_SECRET

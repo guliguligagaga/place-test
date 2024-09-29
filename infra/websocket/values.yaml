@@ -1,0 +1,21 @@
+replicaCount: 1
+namespace: r-clone
+
+generic-go-service:
+  image:
+    repository: ghcr.io/guliguligagaga/place-test/ws
+    tag: main
+    pullPolicy: Always
+  service:
+    port: 8080
+    name: ws
+  env:
+    GIN_MODE: release
+  redisdb:
+    enabled: trus
+    hostname: redis-master
+    port: 6379
+  kafka:
+    enabled: true
+    url: "kafka-t"
+    port: 9092

@@ -12,7 +12,7 @@ service:
     port: 50051
 
 probe:
-  readinessPath: /healthz
+  readinessPath: /readyz
   livenessPath: /healthz
 
 resources: {}
@@ -64,4 +64,6 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
-secretsEnabled: false
+secrets:
+kafka:
+  enabled: false

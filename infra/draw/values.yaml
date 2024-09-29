@@ -1,0 +1,17 @@
+replicaCount: 1
+namespace: r-clone
+
+generic-go-service:
+  image:
+    repository: ghcr.io/guliguligagaga/place-test/draw
+    tag: main
+    pullPolicy: Always
+  service:
+    port: 8080
+    name: draw
+  env:
+    GIN_MODE: release
+  kafka:
+    enabled: true
+    url: "kafka-t"
+    port: 9092

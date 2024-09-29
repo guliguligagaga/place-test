@@ -1,7 +1,7 @@
 apiVersion: v2
 name: auth
 description: Auth service for the application
-version: 0.1.9
+version: 0.1.14
 dependencies:
   - name: generic-go-service
     version: 0.1.1

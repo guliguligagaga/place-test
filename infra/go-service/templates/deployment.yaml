@@ -23,7 +23,7 @@ spec:
     spec:
       serviceAccountName: {{ include "generic-go-service.serviceAccountName" . }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: {{ $releaseName }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
@@ -40,20 +40,17 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- if .Values.kafka.enabled }}
+            - name: KAFKA_URL
+              value: {{ .Values.kafka.url }}
+            - name: KAFKA_PORT
+              value: "{{ .Values.kafka.port }}"
+            {{- end }}
             {{- if .Values.redisdb.enabled }}
             - name: REDIS_HOST
               value: {{ .Values.redisdb.hostname }}
             - name: REDIS_PORT
               value: "{{ .Values.redisdb.port }}"
-            - name: STORAGE_TYPE
-              value: "redis"
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.redisdb.secretName }}
-                  key: {{ .Values.redisdb.passwordKey }}
-            - name: REDIS_USER
-              value: "apps-{{ .Values.global.env.family }}"
             {{- end }}
             - name: WEB_HOST
               value: "0.0.0.0"
@@ -65,14 +62,12 @@ spec:
             - name: {{ $name | quote }}
               value: {{ $value | quote }}
             {{- end }}
-            {{- if .Values.secretsEnabled }}
             {{- range $name, $value := .Values.secrets }}
-            - name: {{ $name | quote }}
+            - name: {{ $value | quote }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $name | quote }}
                   key: {{ $value | quote }}
-            {{- end }}
             {{- end}}
           livenessProbe:
             httpGet:
