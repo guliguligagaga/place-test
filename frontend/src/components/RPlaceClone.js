@@ -150,7 +150,7 @@ const RPlaceClone = () => {
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        handlePixelUpdate(data.x, data.y, data.color);
+        updateGrid(data.x, data.y, data.color);
       };
 
       ws.onerror = (error) => {
@@ -162,7 +162,7 @@ const RPlaceClone = () => {
         setTimeout(() => {
           if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
             reconnectAttemptsRef.current++;
-            connectWebSocket();
+            reconnectWebSocket();
           } else {
             setError('Unable to connect to the server. Please try again later.');
           }
@@ -170,7 +170,7 @@ const RPlaceClone = () => {
       };
 
       wsRef.current = ws;
-    }, [token, handlePixelUpdate]);
+    }, [token, updateGrid]);
 
     const reconnectWebSocket = useCallback(() => {
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
