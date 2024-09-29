@@ -4,6 +4,8 @@
 
 This system is a scalable, real-time implementation of a collaborative pixel art canvas, inspired by Reddit's r/place experiment. It allows multiple users to simultaneously place colored pixels on a shared canvas, creating a dynamic, community-driven artwork.
 
+Hosted on my Pi4 https://guliguli.work
+
 ## Architecture
 
 The system is built using a microservices architecture, deployed on a K3s Kubernetes cluster, with the following components:
