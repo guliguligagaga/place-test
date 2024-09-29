@@ -20,8 +20,8 @@ func NewGridHolder(writer *kafka.Writer) *CellBroadcast {
 }
 
 type msg struct {
-	time int64
-	data string
+	Time int64  `json:"time,omitempty"`
+	Data string `json:"data,omitempty"`
 }
 
 func (gh *CellBroadcast) updateCell(req *Req) error {
@@ -32,17 +32,17 @@ func (gh *CellBroadcast) updateCell(req *Req) error {
 	}
 
 	m := msg{
-		time: time.Now().UnixMilli(),
-		data: string(message),
+		Time: time.Now().UnixMilli(),
+		Data: string(message),
 	}
 
-	message, err = json.Marshal(&m)
+	m2, err := json.Marshal(&m)
 	if err != nil {
 		log.Printf("Failed to marshal update message: %v", err)
 		return err
 	}
 	err = gh.writer.WriteMessages(context.Background(), kafka.Message{
-		Value: message,
+		Value: m2,
 	})
 	return err
 }
