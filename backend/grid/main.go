@@ -37,6 +37,12 @@ func Run() {
 	instance.Run()
 }
 
+type data struct {
+	X     int `json:"x"`
+	Y     int `json:"y"`
+	Color int `json:"color"`
+}
+
 func kafkaConsumer(r *kafka.Reader) {
 	ctx := context.Background()
 	for {
@@ -67,7 +73,15 @@ func kafkaConsumer(r *kafka.Reader) {
 		if err != nil {
 			log.Println("Error updating latest state in Redis:", err)
 		}
-
+		d := data{}
+		_ = json.Unmarshal([]byte(update.Data), &d)
+		gridKey := "grid"
+		bitValue := d.Color // Set the bit value based on your requirements
+		bitOffset := (d.Y*100 + d.X) * 4
+		_, err = redisClient.BitField(ctx, gridKey, "SET", "u4", bitOffset, bitValue).Result()
+		if err != nil {
+			log.Println("Error updating grid status in Redis:", err)
+		}
 		err = r.CommitMessages(ctx, m)
 		if err != nil {
 			log.Println("Error committing message:", err)
