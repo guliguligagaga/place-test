@@ -3,6 +3,8 @@ package auth
 import (
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,4 +64,36 @@ func access(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+func renewToken(c *gin.Context) {
+	tokenString := c.GetHeader("Authorization")
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing authorization header"})
+		return
+	}
+
+	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+
+	claims, err := validateJWTToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
+
+	if time.Now().Unix() > claims.ExpiresAt {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token has expired"})
+		return
+	}
+
+	// Generate a new token
+	newToken, err := generateJWT(claims.Subject, claims.Issuer)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate new token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"token": newToken,
+	})
 }

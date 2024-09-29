@@ -138,46 +138,39 @@ const RPlaceClone = () => {
     }, [token, setGrid, initialFetchDone]);
 
     const connectWebSocket = useCallback(() => {
-        if (!token || wsRef.current) return;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}${window.location.host}/ws`;
-        wsRef.current = new WebSocket(`${wsUrl}?token=${encodeURIComponent(token)}`);
-        wsRef.current.withCredentials = false;
+      const ws = new WebSocket(`${window.location.origin.replace(/^http/, 'ws')}/ws?token=${token}`);
 
-        wsRef.current.onopen = () => {
-            console.log('WebSocket connection established');
-            reconnectAttemptsRef.current = 0;
-            setReconnectDelay(1000);
-            setWsError(null);
-        };
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+      };
 
-        wsRef.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'configuration') {
-                console.log("Received configuration", data);
-                setQuadrants(data.quadrants);
-                setConnectedClients(data.connectedClients || 0);
-            } else if (data.type === 'update') {
-                console.log("Received update", data);
-                updateGrid(data.x, data.y, data.color);
-            } else if (data.type === 'clientCount') {
-                setConnectedClients(data.count);
-            }
-        };
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        handlePixelUpdate(data.x, data.y, data.color);
+      };
 
-        wsRef.current.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
 
-        wsRef.current.onclose = (event) => {
-            console.log('WebSocket connection closed:', event.code, event.reason);
-            if (event.code !== 1000) {
-                reconnectWebSocket();
-            }
-        };
-    }, [token, updateGrid]);
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setTimeout(() => {
+          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttemptsRef.current++;
+            connectWebSocket();
+          } else {
+            setError('Unable to connect to the server. Please try again later.');
+          }
+        }, 1000 * Math.pow(2, reconnectAttemptsRef.current));
+      };
+
+      wsRef.current = ws;
+    }, [token, handlePixelUpdate]);
 
     const reconnectWebSocket = useCallback(() => {
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
@@ -229,9 +222,7 @@ const RPlaceClone = () => {
 
             if (res.ok) {
                 const data = await res.json();
-                setUser(data.user);
                 setToken(data.token);
-                localStorage.setItem('user', JSON.stringify(data.user));
                 localStorage.setItem('token', data.token);
                 await fetchGrid();
                 connectWebSocket();
@@ -246,19 +237,23 @@ const RPlaceClone = () => {
     }, [fetchGrid, connectWebSocket]);
 
     useEffect(() => {
-        const checkActivity = () => {
-            const now = Date.now();
-            if (now - lastActivityRef.current > INACTIVITY_TIMEOUT) {
-                if (wsRef.current) {
-                    wsRef.current.close();
-                }
+        const checkTokenExpiration = () => {
+          if (token) {
+            const tokenData = JSON.parse(atob(token.split('.')[1]));
+            const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
+            const currentTime = Date.now();
+            const timeUntilExpiration = expirationTime - currentTime;
+      
+            if (timeUntilExpiration < 300000) { // 5 minutes before expiration
+              renewToken();
             }
+          }
         };
-    
-        const intervalId = setInterval(checkActivity, 60000); // Check every minute
-    
+      
+        const intervalId = setInterval(checkTokenExpiration, 60000); // Check every minute
+      
         return () => clearInterval(intervalId);
-    }, []);
+      }, [token]);
     
     const handleActivity = useMemo(() => debounce(() => {
         lastActivityRef.current = Date.now();
@@ -329,6 +324,29 @@ const RPlaceClone = () => {
             });
         }
     }, []);
+    
+    const renewToken = async () => {
+      try {
+        const res = await fetch(`${window.location.origin}/api/auth/renew`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setToken(data.token);
+          localStorage.setItem('token', data.token);
+        } else {
+          throw new Error('Failed to renew token');
+        }
+      } catch (err) {
+        console.error('Error renewing token:', err);
+        // If token renewal fails, log out the user
+        handleSignOut();
+      }
+    };
     
     return (
         <AppContainer>
