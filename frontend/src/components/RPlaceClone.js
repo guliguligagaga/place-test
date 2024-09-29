@@ -215,12 +215,15 @@ const RPlaceClone = () => {
     const handleGoogleSignIn = useCallback(async (tokenResponse) => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${window.location.origin}/api/auth/google`, {
+            const res = await fetch(`${window.location.origin}/api/auth/signIn`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({token: tokenResponse.credential}),
+                body: JSON.stringify({
+                    provider: "google",
+                    token: tokenResponse.credential
+                }),
                 credentials: 'include',
             });
 
