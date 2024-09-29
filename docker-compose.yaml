@@ -5,7 +5,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "80:3000"
     depends_on:
       - draw
       - auth
@@ -26,9 +26,8 @@ services:
       args:
         SERVICE_NAME: auth
     environment:
-      - JWT_SECRET=${JWT_SECRET}
-      - GIN_MODE=release
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - JWT_SECRET=secret
+      - GOOGLE_CLIENT_ID=4569410916-mf7l68sh509mrlpu3ih7op7b6dgg4tqh.apps.googleusercontent.com
     ports:
       - "8081:8080"
     networks:
@@ -49,10 +48,12 @@ services:
         SERVICE_NAME: draw
     environment:
       - BIND_ADDRESS=0.0.0.0:5001
-      - REDIS_ADDRESS=redis://redis:6379
-      - GIN_MODE=release
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_URL=kafka
+      - KAFKA_PORT=29092
     ports:
-      - "5001:5001"
+      - "5001:8080"
     depends_on:
       - redis
       - kafka
@@ -72,8 +73,11 @@ services:
         SERVICE_NAME: grid
     environment:
       - BIND_ADDRESS=0.0.0.0:8083
-      - REDIS_ADDRESS=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - GIN_MODE=release
+      - KAFKA_URL=kafka
+      - KAFKA_PORT=29092
     ports:
       - "8083:8083"
     depends_on:
@@ -96,10 +100,13 @@ services:
         SERVICE_NAME: ws
     environment:
       - BIND_ADDRESS=0.0.0.0:8082
-      - REDIS_ADDRESS=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - GIN_MODE=release
+      - KAFKA_URL=kafka
+      - KAFKA_PORT=29092
     ports:
-      - "8082:8082"
+      - "8082:8080"
     depends_on:
       - redis
       - kafka
@@ -112,7 +119,7 @@ services:
       retries: 3
   
   redis:
-    image: redis:6-alpine
+    image: redis:7.4.0-bookworm
     ports:
       - "6379:6379"
     networks:
