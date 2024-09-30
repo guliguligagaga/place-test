@@ -1,6 +1,6 @@
 package main
 
-import draw "backend"
+import "backend/draw"
 
 func main() {
 	draw.Run()

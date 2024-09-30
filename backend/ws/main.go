@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"backend/logging"
+	"backend/web"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -12,7 +14,6 @@ import (
 	"os"
 	"sync"
 	"time"
-	"web"
 )
 
 type Clients struct {
@@ -26,7 +27,7 @@ func (c *Clients) Close() error {
 	for _, conn := range c.clients {
 		err := conn.Close()
 		if err != nil {
-			log.Println("Error closing connection:", err)
+			logging.Errorf("Error closing connection: %v", err)
 		}
 	}
 	return nil
@@ -67,7 +68,7 @@ func Run() {
 func handleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		logging.Errorf("Upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -81,10 +82,10 @@ func handleWebSocket(c *gin.Context) {
 	for {
 		_, _, err = conn.ReadMessage()
 		if err != nil {
-			log.Println("Read error:", err)
+			logging.Errorf("Read error: %v", err)
 			break
 		}
-		//log.Printf("Received message from client %s: %s", clientID, msg)
+		//logging.Printf("Received message from client %s: %s", clientID, msg)
 	}
 
 	clients.Lock()
@@ -96,24 +97,15 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	ctx := context.Background()
 
 	epoch := time.Now().UnixMilli() / 60_000
-	// Get latest epoch
-	//latestEpoch, err := redisClient.Get(ctx, "latest_epoch").Result()
-	//if err != nil {
-	//	log.Println("Error getting latest epoch:", err)
-	//}
-	//err = conn.WriteMessage(websocket.TextMessage, []byte(latestEpoch))
-	//if err != nil {
-	//	log.Println("Error sending latest epoch:", err)
-	//}
 
 	// get latest state
 	res, err := redisClient.Get(ctx, "grid").Result()
 	if err != nil {
-		log.Println("Error getting latest state:", err)
+		logging.Errorf("Error getting latest state:%v", err)
 	}
 	err = conn.WriteMessage(websocket.BinaryMessage, []byte(res))
 	if err != nil {
-		log.Println("Error sending latest state:", err)
+		logging.Errorf("Error sending latest state:%v", err)
 	}
 
 	// Get updates since last connection
@@ -123,13 +115,13 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	}).Result()
 
 	if err != nil {
-		log.Println("Error getting updates:", err)
+		logging.Errorf("Error getting updates:%v", err)
 	}
 
 	for _, update := range updates {
 		err = conn.WriteMessage(websocket.TextMessage, []byte(update))
 		if err != nil {
-			log.Println("Error sending update:", err)
+			logging.Errorf("Error sending update:%v", err)
 		}
 	}
 }
@@ -138,7 +130,7 @@ func kafkaConsumer(r *kafka.Reader) {
 	for {
 		m, err := r.ReadMessage(context.Background())
 		if err != nil {
-			log.Println("Kafka read error:", err)
+			logging.Errorf("Kafka read error:%v", err)
 			continue
 		}
 		log.Printf("Received message from Kafka: %s", string(m.Value))
@@ -148,7 +140,7 @@ func kafkaConsumer(r *kafka.Reader) {
 		for _, conn := range clients.clients {
 			err := conn.WriteMessage(websocket.TextMessage, m.Value)
 			if err != nil {
-				log.Println("Write error:", err)
+				logging.Errorf("Write error:%v", err)
 			}
 		}
 		clients.RUnlock()

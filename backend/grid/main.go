@@ -1,17 +1,17 @@
 package grid
 
 import (
+	"backend/logging"
+	"backend/web"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
-	"log"
 	"os"
 	"strconv"
 	"time"
-	"web"
 )
 
 var redisClient *redis.Client
@@ -48,10 +48,9 @@ func kafkaConsumer(r *kafka.Reader) {
 	for {
 		m, err := r.FetchMessage(ctx)
 		if err != nil {
-			log.Println("Kafka read error:", err)
+			logging.Errorf("Kafka read error:%v", err)
 			continue
 		}
-		log.Printf("Received message from Kafka: %s", string(m.Value))
 
 		// Store update in Redis
 		updateTime := time.Now().UnixMilli()
@@ -61,12 +60,12 @@ func kafkaConsumer(r *kafka.Reader) {
 			Member: string(m.Value),
 		}).Err()
 		if err != nil {
-			log.Println("Error storing update in Redis:", err)
+			logging.Errorf("Error storing update in Redis:%v", err)
 		}
 
 		err = redisClient.Set(ctx, "latest_epoch", strconv.FormatInt(updateEpoch, 10), 0).Err()
 		if err != nil {
-			log.Println("Error updating latest state in Redis:", err)
+			logging.Errorf("Error updating latest state in Redis:%v", err)
 		}
 		d := data{}
 		_ = json.Unmarshal(m.Value, &d)
@@ -82,11 +81,11 @@ func kafkaConsumer(r *kafka.Reader) {
 		}
 		_, err = redisClient.BitField(ctx, gridKey, "SET", "u4", offset, d.Color).Result()
 		if err != nil {
-			log.Println("Error updating grid status in Redis:", err)
+			logging.Errorf("Error updating grid status in Redis:%v", err)
 		}
 		err = r.CommitMessages(ctx, m)
 		if err != nil {
-			log.Println("Error committing message:", err)
+			logging.Errorf("Error committing message:%v", err)
 		}
 	}
 }

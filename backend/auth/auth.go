@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"backend/logging"
 	"log"
 	"net/http"
 	"net/url"
@@ -50,7 +51,6 @@ func access(c *gin.Context) {
 		// Extract forwarded URI
 		r := c.Request
 		forwardedURI := r.Header.Get("X-Forwarded-Uri")
-		log.Printf("X-Forwarded-Uri: %s", forwardedURI)
 
 		// Parse the forwarded URI to extract query parameters
 		parsedURL, err := url.Parse(forwardedURI)
@@ -62,24 +62,20 @@ func access(c *gin.Context) {
 
 		// Extract query parameters
 		queryParams := parsedURL.Query()
-		for key, values := range queryParams {
-			log.Printf("Query param: %s = %v", key, values)
-		}
-
 		tokenString = queryParams.Get("token")
 	} else {
 		tokenString = tokenString[len("Bearer "):]
 	}
 
 	if tokenString == "" {
-		log.Println("Missing authorization header")
+		logging.Errorf("Missing authorization header")
 		c.Status(http.StatusUnauthorized)
 		return
 	}
 
 	_, err := validateJWTToken(tokenString)
 	if err != nil {
-		log.Printf("Invalid token: %v", err)
+		logging.Errorf("Invalid token: %v", err)
 		c.Status(http.StatusUnauthorized)
 		return
 	}

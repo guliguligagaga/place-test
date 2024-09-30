@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/segmentio/kafka-go"
-	"log"
 	"time"
 )
 
@@ -30,7 +29,6 @@ func (gh *CellBroadcast) updateCell(req *Req) error {
 		Time: time.Now().UnixMilli(),
 	})
 	if err != nil {
-		log.Printf("Failed to marshal update message: %v", err)
 		return err
 	}
 	err = gh.writer.WriteMessages(context.Background(), kafka.Message{

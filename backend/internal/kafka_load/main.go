@@ -38,7 +38,7 @@ func writeMessages(k *kafka.Writer) {
 			},
 		)
 		if err != nil {
-			log.Println("Failed to write message:", err)
+			log.Printf("Failed to write message:%v", err)
 		} else {
 			log.Printf("Message written: %d\n", i)
 		}

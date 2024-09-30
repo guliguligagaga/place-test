@@ -1,7 +1,7 @@
 package main
 
 import (
-	"auth"
+	"backend/auth"
 )
 
 func main() {
