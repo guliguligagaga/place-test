@@ -6,6 +6,9 @@ This system is a scalable, real-time implementation of a collaborative pixel art
 
 Hosted on my Pi4 https://guliguli.work
 
+![Untitled-2024-07-22-2203](https://github.com/user-attachments/assets/4aa36f43-9dc0-4e7d-86ce-7d9183ff74f5)
+
+
 ## Architecture
 
 The system is built using a microservices architecture, deployed on a K3s Kubernetes cluster, with the following components:
