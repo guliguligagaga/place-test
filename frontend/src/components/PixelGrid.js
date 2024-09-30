@@ -3,8 +3,7 @@ import PropTypes from 'prop-types';
 
 const INITIAL_ZOOM = 1;
 const MAX_ZOOM = 40;
-const MIN_ZOOM = 0.1;
-const QUADRANT_SIZE = 32;
+const MIN_ZOOM = 1;
 
 const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClients }) => {
     const canvasRef = useRef(null);
@@ -17,7 +16,6 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
     const drawGrid = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-
         const ctx = canvas.getContext('2d');
         const canvasSize = Math.min(canvas.width, canvas.height);
         const scaleFactor = canvasSize / size;
@@ -27,22 +25,6 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
         ctx.save();
         ctx.scale(zoom, zoom);
         ctx.translate(-offset.x, -offset.y);
-
-        // Draw quadrants
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.lineWidth = 1 / zoom;
-        for (let x = 0; x <= size; x += QUADRANT_SIZE) {
-            ctx.beginPath();
-            ctx.moveTo(x * scaleFactor, 0);
-            ctx.lineTo(x * scaleFactor, size * scaleFactor);
-            ctx.stroke();
-        }
-        for (let y = 0; y <= size; y += QUADRANT_SIZE) {
-            ctx.beginPath();
-            ctx.moveTo(0, y * scaleFactor);
-            ctx.lineTo(size * scaleFactor, y * scaleFactor);
-            ctx.stroke();
-        }
 
         // Draw pixels
         for (let y = 0; y < size; y++) {
@@ -72,13 +54,6 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
 
         ctx.restore();
 
-        // // Draw connected clients count
-        // ctx.fillStyle = 'black';
-        // ctx.font = '14px Arial';
-        // ctx.textAlign = 'left';
-        // ctx.textBaseline = 'top';
-        // ctx.fillText(`Connected Clients: ${connectedClients}`, 10, 10);
-
         // Highlight hovered pixel
         if (hoveredPixel) {
             const { x, y } = hoveredPixel;
@@ -100,7 +75,6 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-
         const updateCanvasSize = () => {
             const containerWidth = canvas.parentElement.clientWidth;
             const containerHeight = canvas.parentElement.clientHeight;
@@ -193,15 +167,9 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
         setIsDragging(false);
     }, []);
 
-    // const getQuadrantId = useCallback((x, y) => {
-    //     const quadrant = quadrants.find(q => x >= q.x && x < q.x + QUADRANT_SIZE && y >= q.y && y < q.y + QUADRANT_SIZE);
-    //     return quadrant ? quadrant.id : null;
-    // }, [quadrants]);
-
     const handleClick = useCallback((event) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-
         const rect = canvas.getBoundingClientRect();
         const canvasSize = rect.width;
         const scaleFactor = canvasSize / size;
@@ -210,61 +178,23 @@ const PixelGrid = React.memo(({ grid, onPixelClick, size, colors, connectedClien
 
         if (x >= 0 && x < size && y >= 0 && y < size) {
             onPixelClick(x, y);
-
-            // const quadrantId = getQuadrantId(x, y);
-            // if (quadrantId !== null && !subscribedQuadrants.has(quadrantId)) {
-            //     onSubscribe(quadrantId);
-            // }
         }
     }, [onPixelClick, size, zoom, offset]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-
         canvas.addEventListener('wheel', handleWheel, { passive: false });
         return () => {
             canvas.removeEventListener('wheel', handleWheel);
         };
     }, [handleWheel]);
 
-    // const getVisibleQuadrants = useCallback(() => {
-    //     const visibleQuadrants = [];
-    //     const visibleWidth = size / zoom;
-    //     const visibleHeight = size / zoom;
-    //
-    //     const startX = offset.x;
-    //     const startY = offset.y;
-    //     const endX = offset.x + visibleWidth;
-    //     const endY = offset.y + visibleHeight;
-    //
-    //     quadrants.forEach(quadrant => {
-    //         if (quadrant.x < endX && quadrant.x + QUADRANT_SIZE > startX &&
-    //             quadrant.y < endY && quadrant.y + QUADRANT_SIZE > startY) {
-    //             visibleQuadrants.push(quadrant.id);
-    //         }
-    //     });
-    //
-    //     return visibleQuadrants;
-    // }, [offset, zoom, size, quadrants]);
-
-    // useEffect(() => {
-    //     const visibleQuadrants = getVisibleQuadrants();
-    //     visibleQuadrants.forEach(quadrantId => {
-    //         if (!subscribedQuadrants.has(quadrantId)) {
-    //             onSubscribe(quadrantId);
-    //         }
-    //     });
-    //     subscribedQuadrants.forEach(quadrantId => {
-    //         if (!visibleQuadrants.includes(quadrantId)) {
-    //             onUnsubscribe(quadrantId);
-    //         }
-    //     });
-    // }, [offset, zoom, subscribedQuadrants, onSubscribe, onUnsubscribe, getVisibleQuadrants]);
-
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%', aspectRatio: '1 / 1' }}>
             <canvas
+                width={1000}
+                height = {1000}
                 ref={canvasRef}
                 onClick={handleClick}
                 onMouseDown={handleMouseDown}
@@ -291,14 +221,6 @@ PixelGrid.propTypes = {
     onPixelClick: PropTypes.func.isRequired,
     size: PropTypes.number.isRequired,
     colors: PropTypes.arrayOf(PropTypes.string).isRequired,
-    // quadrants: PropTypes.arrayOf(PropTypes.shape({
-    //     id: PropTypes.number.isRequired,
-    //     x: PropTypes.number.isRequired,
-    //     y: PropTypes.number.isRequired,
-    // })).isRequired,
-    //subscribedQuadrants: PropTypes.instanceOf(Set).isRequired,
-    //onSubscribe: PropTypes.func.isRequired,
-    //onUnsubscribe: PropTypes.func.isRequired,
     connectedClients: PropTypes.number.isRequired,
 };
 

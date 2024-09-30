@@ -42,26 +42,15 @@ const ColorPickerContainer = styled.div`
     margin-bottom: 20px;
 `;
 
-const ColorOption = styled.div`
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    margin: 0 5px;
-    cursor: pointer;
-    border: 2px solid ${props => props.selected ? '#333' : 'transparent'};
-    transition: transform 0.2s;
-
-    &:hover {
-        transform: scale(1.1);
-    }
-`;
-
 const GridContainer = styled.div`
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.19), 0 6px 6px rgba(0, 0, 0, 0.23);
+    background: linear-gradient(135deg, #f8f8f8, #e6e6e6);  
+    border-radius: 1px;  
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);  
+    border: 1px solid rgba(230, 230, 230, 0.8);  
     overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
 `;
+
 
 const RPlaceClone = () => {
     const [grid, setGrid, updateGrid] = useGrid();
@@ -93,8 +82,6 @@ const RPlaceClone = () => {
             lastUpdateRef.current = Time;
             debouncedUpdateGrid(x, y, color);
 
-            console.log(`Index: - ${y * GRID_SIZE + x}`);
-            console.log(`x: ${x}, y: ${y}, colorIndex: - ${color}`);
         } else {
             console.log('Skipped duplicate or older update');
         }
@@ -109,7 +96,6 @@ const RPlaceClone = () => {
 
     const connectWebSocket = useCallback(() => {
         if (isSignedOut) {
-            console.log('User is signed out. Skipping WebSocket connection.');
             return;
         }
         if (wsRef.current?.readyState === 1) {
@@ -124,15 +110,12 @@ const RPlaceClone = () => {
         };
 
         ws.onmessage = async (event) => {
-            //console.log('Received message:', event);
             const data = event.data
             if (event.type === "message" && typeof(data) === "string") {
-                //console.log('Received pixel update:', event.data);
                 const update = JSON.parse(event.data)
                 handlePixel(update)
             } else if (data instanceof Blob) {
                 // Handle Blob data (grid state)
-                //console.log('Received grid data as Blob');
                 const arrayBuffer = await data.arrayBuffer();
                 setGrid(arrayBuffer);
                 setInitialFetchDone(true)
@@ -146,7 +129,6 @@ const RPlaceClone = () => {
         };
 
         ws.onclose = () => {
-            console.log('WebSocket disconnected');
             setTimeout(() => {
                 if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
                     reconnectAttemptsRef.current++;
@@ -218,7 +200,6 @@ const RPlaceClone = () => {
                 const data = await res.json();
                 setToken(data.token);
                 localStorage.setItem("token", data.token)
-                //connectWebSocket();
             } else {
                 throw new Error('Failed to authenticate with the server');
             }
@@ -232,14 +213,14 @@ const RPlaceClone = () => {
     useEffect(() => {
         const checkTokenExpiration = () => {
             if (token) {
-                const tokenData = JSON.parse(atob(token.split('.')[1]));
-                const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
-                const currentTime = Date.now();
-                const timeUntilExpiration = expirationTime - currentTime;
-
-                if (timeUntilExpiration < 300000) { // 5 minutes before expiration
-                    renewToken();
-                }
+                // const tokenData = JSON.parse(atob(token.split('.')[1]));
+                // const expirationTime = tokenData.exp * 1000; // Convert to milliseconds
+                // const currentTime = Date.now();
+                // const timeUntilExpiration = expirationTime - currentTime;
+                //
+                // if (timeUntilExpiration < 300000) { // 5 minutes before expiration
+                //     renewToken();
+                // }
             }
         };
 
