@@ -112,7 +112,8 @@ const RPlaceClone = () => {
             console.log('User is signed out. Skipping WebSocket connection.');
             return;
         }
-        if (wsRef.current) {
+        if (wsRef.current?.readyState === 1) {
+            console.log('WebSocket already connected. Skipping connection.');
             return
         }
 
@@ -123,15 +124,15 @@ const RPlaceClone = () => {
         };
 
         ws.onmessage = async (event) => {
-            console.log('Received message:', event);
+            //console.log('Received message:', event);
             const data = event.data
             if (event.type === "message" && typeof(data) === "string") {
-                console.log('Received pixel update:', event.data);
+                //console.log('Received pixel update:', event.data);
                 const update = JSON.parse(event.data)
                 handlePixel(update)
             } else if (data instanceof Blob) {
                 // Handle Blob data (grid state)
-                console.log('Received grid data as Blob');
+                //console.log('Received grid data as Blob');
                 const arrayBuffer = await data.arrayBuffer();
                 setGrid(arrayBuffer);
                 setInitialFetchDone(true)
@@ -153,6 +154,7 @@ const RPlaceClone = () => {
                 } else {
                     setError('Unable to connect to the server. Please try again later.');
                     setIsSignedOut(true)
+                    wsRef.current = null;
                 }
             }, 1000 * Math.pow(2, reconnectAttemptsRef.current));
         };
