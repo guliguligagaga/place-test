@@ -5,6 +5,7 @@ metadata:
 data:
   config.json: |
     {
+      "authEnabled": false,
       "googleClientId": "4569410916-b1reualmp2uqi9qt0ktrsh8ubv6bdsvu.apps.googleusercontent.com"
     }
 ---
