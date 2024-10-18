@@ -1,6 +1,6 @@
 package main
 
-import "ws"
+import "backend/ws"
 
 func main() {
 	ws.Run()

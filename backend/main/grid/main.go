@@ -1,6 +1,6 @@
 package main
 
-import "grid"
+import "backend/grid"
 
 func main() {
 	grid.Run()

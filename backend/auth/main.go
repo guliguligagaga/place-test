@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"auth/provider"
-	"web"
+	"backend/auth/provider"
+	"backend/web"
 )
 
 func Run() {

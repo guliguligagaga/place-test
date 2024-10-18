@@ -1,6 +1,7 @@
 package web
 
 import (
+	"backend/logging"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -28,6 +29,7 @@ type Opts func(*Server)
 var WithGinEngine = func(f func(r *gin.Engine)) func(s *Server) {
 	return func(s *Server) {
 		s.route = gin.Default()
+		s.route.Use(logging.Ginrus())
 		f(s.route)
 	}
 }
@@ -102,7 +104,7 @@ func (i *Server) Run() {
 
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down...")
+	logging.Errorf("Shutting down...")
 	for _, cl := range i.closeOnExit {
 		if err := cl.Close(); err != nil {
 			log.Printf("Error closing: %v", err)

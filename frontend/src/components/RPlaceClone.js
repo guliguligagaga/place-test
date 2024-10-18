@@ -88,7 +88,6 @@ const RPlaceClone = ( { authEnabled }) => {
     }, [debouncedUpdateGrid]);
 
     useEffect(() => {
-        setToken("xx")
         const storedToken = localStorage.getItem('token');
         if (storedToken) {
             setToken(storedToken);
@@ -99,7 +98,8 @@ const RPlaceClone = ( { authEnabled }) => {
         if (isSignedOut) {
             return;
         }
-        if (wsRef.current) {
+        if (wsRef.current?.readyState === 1) {
+            console.log('WebSocket already connected. Skipping connection.');
             return
         }
 
@@ -136,6 +136,7 @@ const RPlaceClone = ( { authEnabled }) => {
                 } else {
                     setError('Unable to connect to the server. Please try again later.');
                     setIsSignedOut(true)
+                    wsRef.current = null;
                 }
             }, 1000 * Math.pow(2, reconnectAttemptsRef.current));
         };

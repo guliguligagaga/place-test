@@ -1,12 +1,12 @@
 package draw
 
 import (
+	"backend/web"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/segmentio/kafka-go"
 	"os"
 	"time"
-	"web"
 )
 
 type Req struct {
