@@ -52,7 +52,7 @@ const GridContainer = styled.div`
 `;
 
 
-const RPlaceClone = () => {
+const RPlaceClone = ( { authEnabled }) => {
     const [grid, setGrid, updateGrid] = useGrid();
     const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
@@ -293,9 +293,31 @@ const RPlaceClone = () => {
             <Header>r/place Clone</Header>
             {isLoading ? (
                 <div>Loading...</div>
-            ) : token ? (
+            ) : authEnabled ? (
+                token ? (
+                    <>
+                        <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
+                        <ColorPickerContainer>
+                            <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor} colors={COLORS}/>
+                        </ColorPickerContainer>
+                        <GridContainer>
+                            <PixelGrid
+                                grid={grid}
+                                onPixelClick={handlePixelUpdate}
+                                size={GRID_SIZE}
+                                colors={COLORS}
+                                connectedClients={connectedClients}
+                            />
+                        </GridContainer>
+                    </>
+                ) : (
+                    <GoogleLogin
+                        onSuccess={handleGoogleSignIn}
+                        onError={() => setError('Login Failed')}
+                    />
+                )
+            ) : (
                 <>
-                    <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
                     <ColorPickerContainer>
                         <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor} colors={COLORS}/>
                     </ColorPickerContainer>
@@ -309,11 +331,6 @@ const RPlaceClone = () => {
                         />
                     </GridContainer>
                 </>
-            ) : (
-                <GoogleLogin
-                    onSuccess={handleGoogleSignIn}
-                    onError={() => setError('Login Failed')}
-                />
             )}
 
             {error && <Alert variant="danger" className="mt-3">{error}</Alert>}

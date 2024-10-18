@@ -4,17 +4,20 @@ import RPlaceClone from './components/RPlaceClone';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { ConfigContext } from './ConfigProvider';
 
-const AppRoutes = () => {
-    const config = useContext(ConfigContext);
 
+const AppRoutes = ({ authEnabled }) => {
     return (
         <Routes>
             <Route path="/health" element={<h3>ok</h3>} />
             <Route path="/" element={
                 <React.StrictMode>
-                    <GoogleOAuthProvider clientId={config.googleClientId}>
-                        <RPlaceClone />
-                    </GoogleOAuthProvider>
+                    {authEnabled ? (
+                        <GoogleOAuthProvider clientId={config.googleClientId}>
+                            <RPlaceClone />
+                        </GoogleOAuthProvider>
+                    ) : (
+                        <RPlaceClone authEnabled={authEnabled} />
+                    )}
                 </React.StrictMode>
             } />
             <Route path="*" element={<Navigate to="/not-found" replace />} />
