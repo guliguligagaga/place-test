@@ -88,6 +88,10 @@ const RPlaceClone = ( { authEnabled }) => {
     }, [debouncedUpdateGrid]);
 
     useEffect(() => {
+        if (!authEnabled) {
+            setToken('public');
+            return
+        }
         const storedToken = localStorage.getItem('token');
         if (storedToken) {
             setToken(storedToken);
