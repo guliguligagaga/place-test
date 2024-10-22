@@ -82,11 +82,13 @@ func addMsgType(msgType uint8, msg []byte) []byte {
 	return append([]byte{msgType}, msg...)
 }
 
+var gridKey = os.Getenv("REDIS_GRID_KEY")
+
 func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	ctx := context.Background()
 	epoch := time.Now().UnixMilli() / 60_000
 
-	res, err := redisClient.Get(ctx, "grid").Result()
+	res, err := redisClient.Get(ctx, gridKey).Result()
 	if err != nil {
 		logging.Errorf("Error getting latest state:%v", err)
 	}

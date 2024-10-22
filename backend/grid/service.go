@@ -72,11 +72,8 @@ func (s *Service) updateLatestEpoch(ctx context.Context, epoch int64) error {
 }
 
 func (s *Service) updateGridStatus(ctx context.Context, value []byte) error {
-	fmt.Printf("Updating grid status with value: %b\n", value)
 	cell := protocol.Decode([8]byte(value))
-	fmt.Printf("Decoded cell: %v\n", cell)
 	offset := calculateOffset(cell.Y, cell.X)
-	fmt.Printf("Calculated offset: %d\n", offset)
 	_, err := s.redisClient.BitField(ctx,
 		s.gridKey,
 		"SET",
