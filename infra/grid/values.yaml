@@ -2,6 +2,8 @@ replicaCount: 1
 namespace: r-clone
 
 generic-go-service:
+  env:
+    REDIS_GRID_KEY: grid
   image:
     repository: ghcr.io/guliguligagaga/place-test/grid
     tag: main
