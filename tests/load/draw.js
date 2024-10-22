@@ -2,10 +2,9 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 
-const BASE_URL = 'https://guliguli.work';
+const BASE_URL = 'https://grid.guliguli.work';
 // Replace with a valid JWT token
-const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3Mjc2NDE5MDgsImlzcyI6Imdvb2dsZSIsInN1YiI6IjEwNzQxMzE1NTkwNDk2OTIzNzkzMyJ9.WkGwGR6LAjTBPYvjBL4BpS0CGnFOjdPeWmKrUsMW_U8';
-
+const TOKEN = 'load-test'
 export const options = {
   stages: [
     { duration: '30s', target: 50 },  // Ramp up to 50 users over 30 seconds
