@@ -124,8 +124,9 @@ func kafkaConsumer(r *kafka.Reader) {
 		log.Printf("Received message from Kafka: %s", string(m.Value))
 
 		clients.RLock()
+		data := addMsgType(msgTypeUpdate, m.Value)
 		for _, conn := range clients.clients {
-			err = conn.WriteMessage(websocket.BinaryMessage, m.Value)
+			err = conn.WriteMessage(websocket.BinaryMessage, data)
 			if err != nil {
 				logging.Errorf("Write error:%v", err)
 			}
