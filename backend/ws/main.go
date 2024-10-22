@@ -107,7 +107,7 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 
 	for _, update := range updates {
 		data = addMsgType(msgTypeUpdate, []byte(update))
-		err = conn.WriteMessage(websocket.TextMessage, data)
+		err = conn.WriteMessage(websocket.BinaryMessage, data)
 		if err != nil {
 			logging.Errorf("Error sending update:%v", err)
 		}
