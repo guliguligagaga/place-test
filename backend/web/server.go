@@ -18,7 +18,7 @@ type Server struct {
 	closeOnExit    []io.Closer
 	onStart        []func()
 	route          *gin.Engine
-	redis          *redis.Client
+	redis          redis.UniversalClient
 	pingFunctions  []func() error
 	kafkaConsumers []*kafka.Reader
 	kafkaWriters   []*kafka.Writer
@@ -45,15 +45,23 @@ var WithKafkaConsumer = func(cfg kafka.ReaderConfig, f func(k *kafka.Reader)) fu
 	}
 }
 
-var WithRedis = func(s *Server) {
-	url := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
-	s.redis = redis.NewClient(&redis.Options{
-		Addr: url,
-	})
+var WithDefaultRedis = func(s *Server) {
+	client := MakeRedisClient()
+	s.redis = client
 	s.AddPingFunction(func() error {
 		return s.redis.Ping(s.redis.Context()).Err()
 	})
 	s.closeOnExit = append(s.closeOnExit, s.redis)
+}
+
+var WithRedis = func(c redis.UniversalClient) func(s *Server) {
+	return func(s *Server) {
+		s.redis = c
+		s.AddPingFunction(func() error {
+			return s.redis.Ping(s.redis.Context()).Err()
+		})
+		s.closeOnExit = append(s.closeOnExit, s.redis)
+	}
 }
 
 var WithKafkaWriter = func(cfg *kafka.Writer) func(s *Server) {
@@ -61,6 +69,13 @@ var WithKafkaWriter = func(cfg *kafka.Writer) func(s *Server) {
 		s.kafkaWriters = append(s.kafkaWriters, cfg)
 		s.closeOnExit = append(s.closeOnExit, cfg)
 	}
+}
+
+func MakeRedisClient() *redis.Client {
+	url := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
+	return redis.NewClient(&redis.Options{
+		Addr: url,
+	})
 }
 
 func MakeServer(opts ...Opts) *Server {
@@ -79,7 +94,7 @@ func (i *Server) AddPingFunction(f func() error) {
 	i.pingFunctions = append(i.pingFunctions, f)
 }
 
-func (i *Server) Redis() *redis.Client {
+func (i *Server) Redis() redis.UniversalClient {
 	return i.redis
 }
 

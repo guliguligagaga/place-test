@@ -1,8 +1,8 @@
 package draw
 
 import (
+	"backend/internal/protocol"
 	"context"
-	"encoding/json"
 	"github.com/segmentio/kafka-go"
 	"time"
 )
@@ -18,21 +18,15 @@ func NewGridHolder(writer *kafka.Writer) *CellBroadcast {
 	return holder
 }
 
-type msg struct {
-	Req
-	Time int64 `json:"time,omitempty"`
+func reqToCell(r *Req) protocol.Cell {
+	return protocol.Cell{X: r.X, Y: r.Y, Color: r.Color, Time: time.Now().UnixMilli()}
 }
 
 func (gh *CellBroadcast) updateCell(req *Req) error {
-	m2, err := json.Marshal(&msg{
-		Req:  *req,
-		Time: time.Now().UnixMilli(),
-	})
-	if err != nil {
-		return err
-	}
-	err = gh.writer.WriteMessages(context.Background(), kafka.Message{
-		Value: m2,
+	cell := reqToCell(req)
+	bytes := cell.Encode()
+	err := gh.writer.WriteMessages(context.Background(), kafka.Message{
+		Value: bytes[:],
 	})
 	return err
 }

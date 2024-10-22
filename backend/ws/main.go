@@ -12,37 +12,16 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 )
-
-type Clients struct {
-	sync.RWMutex
-	clients map[int64]*websocket.Conn
-}
-
-func (c *Clients) Close() error {
-	c.RWMutex.Lock()
-	defer c.RWMutex.Unlock()
-	for _, conn := range c.clients {
-		err := conn.Close()
-		if err != nil {
-			logging.Errorf("Error closing connection: %v", err)
-		}
-	}
-	return nil
-}
-
-var clients = &Clients{
-	clients: make(map[int64]*websocket.Conn),
-}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
-var redisClient *redis.Client
+
+var redisClient redis.UniversalClient
 
 func Run() {
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
@@ -59,7 +38,7 @@ func Run() {
 	}
 	consumer := web.WithKafkaConsumer(r, kafkaConsumer)
 
-	instance := web.MakeServer(ginEngine, web.WithRedis, consumer)
+	instance := web.MakeServer(ginEngine, web.WithDefaultRedis, consumer)
 	instance.AddCloseOnExit(clients)
 	redisClient = instance.Redis()
 	instance.Run()
@@ -73,7 +52,7 @@ func handleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	clientID := time.Now().UnixNano()
+	clientID := generateClientID()
 	clients.Lock()
 	clients.clients[clientID] = conn
 	clients.Unlock()
@@ -93,22 +72,30 @@ func handleWebSocket(c *gin.Context) {
 	clients.Unlock()
 }
 
+const (
+	_            uint8 = iota
+	msgTypeState       = 1 << iota
+	msgTypeUpdate
+)
+
+func addMsgType(msgType uint8, msg []byte) []byte {
+	return append([]byte{msgType}, msg...)
+}
+
 func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	ctx := context.Background()
-
 	epoch := time.Now().UnixMilli() / 60_000
 
-	// get latest state
 	res, err := redisClient.Get(ctx, "grid").Result()
 	if err != nil {
 		logging.Errorf("Error getting latest state:%v", err)
 	}
-	err = conn.WriteMessage(websocket.BinaryMessage, []byte(res))
+	data := addMsgType(msgTypeState, []byte(res))
+	err = conn.WriteMessage(websocket.BinaryMessage, data)
 	if err != nil {
 		logging.Errorf("Error sending latest state:%v", err)
 	}
 
-	// Get updates since last connection
 	updates, err := redisClient.ZRangeByScore(ctx, fmt.Sprintf("updates:%d", epoch), &redis.ZRangeBy{
 		Min: "-inf",
 		Max: "+inf",
@@ -119,7 +106,8 @@ func sendLatestStateAndUpdates(conn *websocket.Conn) {
 	}
 
 	for _, update := range updates {
-		err = conn.WriteMessage(websocket.TextMessage, []byte(update))
+		data = addMsgType(msgTypeUpdate, []byte(update))
+		err = conn.WriteMessage(websocket.TextMessage, data)
 		if err != nil {
 			logging.Errorf("Error sending update:%v", err)
 		}
@@ -135,10 +123,9 @@ func kafkaConsumer(r *kafka.Reader) {
 		}
 		log.Printf("Received message from Kafka: %s", string(m.Value))
 
-		// Broadcast to connected clients
 		clients.RLock()
 		for _, conn := range clients.clients {
-			err := conn.WriteMessage(websocket.TextMessage, m.Value)
+			err = conn.WriteMessage(websocket.BinaryMessage, m.Value)
 			if err != nil {
 				logging.Errorf("Write error:%v", err)
 			}

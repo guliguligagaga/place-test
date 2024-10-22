@@ -10,9 +10,9 @@ import (
 )
 
 type Req struct {
-	X     int `json:"x"`
-	Y     int `json:"y"`
-	Color int `json:"color"`
+	X     uint16 `json:"x"`
+	Y     uint16 `json:"y"`
+	Color uint8  `json:"color"`
 }
 
 func Run() {

@@ -43,16 +43,16 @@ const ColorPickerContainer = styled.div`
 `;
 
 const GridContainer = styled.div`
-    background: linear-gradient(135deg, #f8f8f8, #e6e6e6);  
-    border-radius: 1px;  
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);  
-    border: 1px solid rgba(230, 230, 230, 0.8);  
+    background: linear-gradient(135deg, #f8f8f8, #e6e6e6);
+    border-radius: 1px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(230, 230, 230, 0.8);
     overflow: hidden;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
 `;
 
 
-const RPlaceClone = ( { authEnabled }) => {
+const RPlaceClone = ({authEnabled}) => {
     const [grid, setGrid, updateGrid] = useGrid();
     const [selectedColor, setSelectedColor] = useState(0);
     const [error, setError] = useState(null);
@@ -75,7 +75,7 @@ const RPlaceClone = ( { authEnabled }) => {
         [updateGrid])
 
     const handlePixel = useCallback((update) => {
-        const { x, y, color, Time } = update;
+        const {x, y, color, Time} = update;
 
         // Check if this update is newer than the last one we processed
         if (!lastUpdateRef.current || Time > lastUpdateRef.current) {
@@ -112,21 +112,52 @@ const RPlaceClone = ( { authEnabled }) => {
         ws.onopen = () => {
             console.log('WebSocket connected');
         };
-
+        ws.binaryType = 'arraybuffer';
         ws.onmessage = async (event) => {
-            const data = event.data
-            if (event.type === "message" && typeof(data) === "string") {
-                const update = JSON.parse(event.data)
-                handlePixel(update)
-            } else if (data instanceof Blob) {
-                // Handle Blob data (grid state)
-                const arrayBuffer = await data.arrayBuffer();
-                setGrid(arrayBuffer);
-                setInitialFetchDone(true)
+            if (event.data instanceof ArrayBuffer) {
+                const view = new DataView(event.data);
+                let msgType = view.getUint8(0);
+                switch (msgType) {
+                    case 2: {
+                        //state
+                        setGrid(view);
+                        setInitialFetchDone(true)
+                        break
+                    }
+                    case 4: {
+                        // pixel update
+                        handlePixel(decodePixel(view))
+                        break
+                    }
+                    default:
+                        console.warn('Received unknown message type:', msgType);
+                }
             } else {
                 console.warn('Received unknown message format:', event.data);
             }
-        };
+        }
+
+        function decodePixel(encoded) {
+            const view = new DataView(encoded.buffer);
+
+            const combinedX = view.getUint16(1, false);
+            const x = combinedX & 0x3FFF;
+            let color = (combinedX >> 12) & 0b1100;
+
+            const combinedY = view.getUint16(3, false);
+            const y = combinedY & 0x3FFF;
+            color |= (combinedY >> 14) & 0b0011;
+
+            const millisDiff = view.getUint32(5, false);
+            const time = 1704067200000 + millisDiff;
+
+            return {
+                x: x,
+                y: y,
+                color: color,
+                time: time
+            };
+        }
 
         ws.onerror = (error) => {
             console.error('WebSocket error:', error);
@@ -303,7 +334,8 @@ const RPlaceClone = ( { authEnabled }) => {
                     <>
                         <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
                         <ColorPickerContainer>
-                            <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor} colors={COLORS}/>
+                            <ColorPicker selectedColor={selectedColor} onColorSelect={setSelectedColor}
+                                         colors={COLORS}/>
                         </ColorPickerContainer>
                         <GridContainer>
                             <PixelGrid

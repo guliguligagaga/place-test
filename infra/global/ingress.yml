@@ -5,6 +5,12 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    forwardedHeaders:
+      trustedIPs:
+        - 10.42.0.0/16
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - insecure: true
     ports:
       web:
         port: 8000
@@ -19,6 +25,8 @@ spec:
         protocol: TCP
 
     service:
+      spec:
+        externalTrafficPolicy: Local
       enabled: true
       type: LoadBalancer
       annotations: {}
@@ -39,8 +47,30 @@ spec:
 
     additionalArguments:
       - "--providers.kubernetesingress.ingressclass=traefik-internal"
-      - "--log.level=DEBUG"
+      - "--log.level=ERROR"
+      - "--entrypoints.web.proxyProtocol.trustedIPs=10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
+      - "--entrypoints.websecure.proxyProtocol.trustedIPs=10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
+      - "--entrypoints.web.forwardedHeaders.trustedIPs=10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
+      - "--entrypoints.websecure.forwardedHeaders.trustedIPs=10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
 
+    logs:
+      access:
+        enabled: false
+        filters:
+          filterPath:
+            - "/ping"
+            - "/metrics"
+          filterRouterName:
+            - "ping@internal"
+            - "prometheus@internal"
+        format: json
+        fields:
+          general:
+            defaultMode: keep
+            names:
+              ClientUsername: drop
+          headers:
+            defaultMode: keep
     ingressRoute:
       dashboard:
         enabled: true
@@ -59,6 +89,8 @@ spec:
         allowExternalNameServices: true
       kubernetesIngress:
         enabled: true
+        publishedService:
+          enabled: true
         allowExternalNameServices: true
 
     tls:
@@ -81,7 +113,7 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`guliguli.work`) && PathPrefix(`/api/auth`)
+      match: Host(`grid.guliguli.work`) && PathPrefix(`/api/auth`)
       priority: 2
       services:
         - kind: Service
@@ -101,14 +133,14 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`guliguli.work`) && PathPrefix(`/`)
+      match: Host(`grid.guliguli.work`) && PathPrefix(`/`)
       priority: 1
       services:
         - kind: Service
           name: frontend
           port: 3000
     - kind: Rule
-      match: Host(`guliguli.work`) && PathPrefix(`/config`)
+      match: Host(`grid.guliguli.work`) && PathPrefix(`/config`)
       services:
         - kind: Service
           name: frontend
@@ -160,7 +192,7 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`guliguli.work`) && PathPrefix(`/ws`)
+      match: Host(`grid.guliguli.work`) && PathPrefix(`/ws`)
       services:
         - kind: Service
           name: ws
@@ -179,7 +211,7 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`guliguli.work`) && PathPrefix(`/api/draw`)
+      match: Host(`grid.guliguli.work`) && PathPrefix(`/api/draw`)
       services:
         - kind: Service
           name: draw
