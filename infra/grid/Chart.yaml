@@ -1,7 +1,7 @@
 apiVersion: v2
 name: grid
 description: Grid service for the application
-version: 0.1.4
+version: 0.1.5
 dependencies:
   - name: generic-go-service
     version: 0.1.1

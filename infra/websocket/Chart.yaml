@@ -1,7 +1,7 @@
 apiVersion: v2
 name: ws
 description: Websocket service for the application
-version: 0.1.5
+version: 0.1.6
 dependencies:
   - name: generic-go-service
     version: 0.1.1

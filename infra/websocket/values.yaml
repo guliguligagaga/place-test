@@ -11,6 +11,7 @@ generic-go-service:
     name: ws
   env:
     GIN_MODE: release
+    REDIS_GRID_KEY: grid
   redisdb:
     enabled: trus
     hostname: redis-master
