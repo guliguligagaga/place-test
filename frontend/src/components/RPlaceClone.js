@@ -120,7 +120,7 @@ const RPlaceClone = ({authEnabled}) => {
                 switch (msgType) {
                     case 2: {
                         //state
-                        setGrid(event.data);
+                        setGrid(new Uint8Array(event.data).slice(1).buffer);
                         setInitialFetchDone(true)
                         break
                     }
