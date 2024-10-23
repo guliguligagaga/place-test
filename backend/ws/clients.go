@@ -100,7 +100,6 @@ func (c *Clients) clientWriter(client *Client) {
 			err := client.Conn.WriteMessage(websocket.BinaryMessage, message)
 			if err != nil {
 				logging.Errorf("Error writing to client %d: %v", client.ID, err)
-				c.Remove(client)
 				return
 			}
 		case <-client.done:
