@@ -9,10 +9,15 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/segmentio/kafka-go"
-	"log"
 	"net/http"
 	"os"
 	"time"
+)
+
+const (
+	_            uint8 = iota
+	msgTypeState       = 1 << iota
+	msgTypeUpdate
 )
 
 var upgrader = websocket.Upgrader{
@@ -22,6 +27,8 @@ var upgrader = websocket.Upgrader{
 }
 
 var redisClient redis.UniversalClient
+var clients = NewClients()
+var gridKey = os.Getenv("REDIS_GRID_KEY")
 
 func Run() {
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
@@ -39,9 +46,12 @@ func Run() {
 	consumer := web.WithKafkaConsumer(r, kafkaConsumer)
 
 	instance := web.MakeServer(ginEngine, web.WithDefaultRedis, consumer)
-	instance.AddCloseOnExit(clients)
 	redisClient = instance.Redis()
 	instance.Run()
+}
+
+func addMsgType(msgType uint8, msg []byte) []byte {
+	return append([]byte{msgType}, msg...)
 }
 
 func handleWebSocket(c *gin.Context) {
@@ -50,72 +60,27 @@ func handleWebSocket(c *gin.Context) {
 		logging.Errorf("Upgrade error: %v", err)
 		return
 	}
-	defer conn.Close()
 
-	clientID := generateClientID()
-	clients.Lock()
-	clients.clients[clientID] = conn
-	clients.Unlock()
-	sendLatestStateAndUpdates(conn)
+	client := clients.Add(conn)
+	if client == nil {
+		conn.Close()
+		return
+	}
 
+	go sendLatestStateAndUpdates(client)
+
+	// Read pump
 	for {
 		_, _, err = conn.ReadMessage()
 		if err != nil {
-			logging.Errorf("Read error: %v", err)
 			break
 		}
-		//logging.Printf("Received message from client %s: %s", clientID, msg)
 	}
 
-	clients.Lock()
-	delete(clients.clients, clientID)
-	clients.Unlock()
+	clients.Remove(client)
 }
 
-const (
-	_            uint8 = iota
-	msgTypeState       = 1 << iota
-	msgTypeUpdate
-)
-
-func addMsgType(msgType uint8, msg []byte) []byte {
-	return append([]byte{msgType}, msg...)
-}
-
-var gridKey = os.Getenv("REDIS_GRID_KEY")
-
-func sendLatestStateAndUpdates(conn *websocket.Conn) {
-	ctx := context.Background()
-	epoch := time.Now().UnixMilli() / 60_000
-
-	res, err := redisClient.Get(ctx, gridKey).Result()
-	if err != nil {
-		logging.Errorf("Error getting latest state:%v", err)
-	}
-	data := addMsgType(msgTypeState, []byte(res))
-	err = conn.WriteMessage(websocket.BinaryMessage, data)
-	if err != nil {
-		logging.Errorf("Error sending latest state:%v", err)
-	}
-
-	updates, err := redisClient.ZRangeByScore(ctx, fmt.Sprintf("updates:%d", epoch), &redis.ZRangeBy{
-		Min: "-inf",
-		Max: "+inf",
-	}).Result()
-
-	if err != nil {
-		logging.Errorf("Error getting updates:%v", err)
-	}
-
-	for _, update := range updates {
-		data = addMsgType(msgTypeUpdate, []byte(update))
-		err = conn.WriteMessage(websocket.BinaryMessage, data)
-		if err != nil {
-			logging.Errorf("Error sending update:%v", err)
-		}
-	}
-}
-
+// Modified kafkaConsumer function
 func kafkaConsumer(r *kafka.Reader) {
 	for {
 		m, err := r.ReadMessage(context.Background())
@@ -123,16 +88,37 @@ func kafkaConsumer(r *kafka.Reader) {
 			logging.Errorf("Kafka read error:%v", err)
 			continue
 		}
-		log.Printf("Received message from Kafka: %s", string(m.Value))
 
-		clients.RLock()
 		data := addMsgType(msgTypeUpdate, m.Value)
-		for _, conn := range clients.clients {
-			err = conn.WriteMessage(websocket.BinaryMessage, data)
-			if err != nil {
-				logging.Errorf("Write error:%v", err)
-			}
-		}
-		clients.RUnlock()
+		clients.Broadcast(data)
+	}
+}
+
+func sendLatestStateAndUpdates(client *Client) {
+	ctx := context.Background()
+	epoch := time.Now().UnixMilli() / 60_000
+
+	res, err := redisClient.Get(ctx, gridKey).Result()
+	if err != nil {
+		logging.Errorf("Error getting latest state:%v", err)
+		return
+	}
+
+	data := addMsgType(msgTypeState, []byte(res))
+	client.Send(data)
+
+	updates, err := redisClient.ZRangeByScore(ctx, fmt.Sprintf("%s:updates:%d", gridKey, epoch), &redis.ZRangeBy{
+		Min: "-inf",
+		Max: "+inf",
+	}).Result()
+
+	if err != nil {
+		logging.Errorf("Error getting updates:%v", err)
+		return
+	}
+
+	for _, update := range updates {
+		data = addMsgType(msgTypeUpdate, []byte(update))
+		client.Send(data)
 	}
 }

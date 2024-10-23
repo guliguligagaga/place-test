@@ -57,7 +57,7 @@ func (s *Service) handle(ctx context.Context, msg kafka.Message) error {
 
 func (s *Service) storeUpdate(ctx context.Context, epoch int64, msg kafka.Message) error {
 	return s.redisClient.ZAdd(ctx,
-		fmt.Sprintf("%s%d", UpdatesKeyPrefix, epoch),
+		fmt.Sprintf("%s:%s:%d", s.gridKey, UpdatesKeyPrefix, epoch),
 		&redis.Z{
 			Score:  float64(msg.Time.UnixMilli()),
 			Member: string(msg.Value),
@@ -84,7 +84,7 @@ func (s *Service) updateGridStatus(ctx context.Context, value []byte) error {
 }
 
 func calculateOffset(y, x uint16) int64 {
-	byteIndex := (y*GridSize + x) / 2
+	byteIndex := (y*size + x) / 2
 	isUpperNibble := (x & 1) == 0
 
 	if isUpperNibble {

@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	GridSize         = 100
-	UpdatesKeyPrefix = "updates:"
+	size             = 100
+	UpdatesKeyPrefix = "updates"
 	LatestEpochKey   = "latest_epoch"
 )
 

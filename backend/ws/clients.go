@@ -4,29 +4,96 @@ import (
 	"backend/logging"
 	"github.com/gorilla/websocket"
 	"math/rand"
-	"sync"
 	"sync/atomic"
 )
 
 type Clients struct {
-	sync.RWMutex
-	clients map[uint64]*websocket.Conn
+	pool       *WorkerPool
+	totalConns atomic.Int64
 }
 
-func (c *Clients) Close() error {
-	c.RWMutex.Lock()
-	defer c.RWMutex.Unlock()
-	for _, conn := range c.clients {
-		err := conn.Close()
-		if err != nil {
-			logging.Errorf("Error closing connection: %v", err)
+func NewClients() *Clients {
+	return &Clients{
+		pool: NewWorkerPool(),
+	}
+}
+
+type Client struct {
+	ID          uint64
+	Conn        *websocket.Conn
+	send        chan []byte
+	done        chan struct{}
+	workerIndex int
+}
+
+func (c *Client) Send(data []byte) {
+	c.send <- data
+}
+
+func (c *Clients) Add(conn *websocket.Conn) *Client {
+	clientID := generateClientID()
+	workerIndex := int(clientID % uint64(numWorkers))
+	worker := c.pool.workers[workerIndex]
+
+	client := &Client{
+		ID:          clientID,
+		Conn:        conn,
+		send:        make(chan []byte, clientQueueSize),
+		done:        make(chan struct{}),
+		workerIndex: workerIndex,
+	}
+
+	worker.clientsLock.Lock()
+	if len(worker.clients) >= maxClientsPerWorker {
+		worker.clientsLock.Unlock()
+		conn.Close()
+		return nil
+	}
+	worker.clients[clientID] = client
+	worker.clientsLock.Unlock()
+
+	c.totalConns.Add(1)
+	go c.clientWriter(client)
+	return client
+}
+
+func (c *Clients) Remove(client *Client) {
+	worker := c.pool.workers[client.workerIndex]
+
+	worker.clientsLock.Lock()
+	delete(worker.clients, client.ID)
+	worker.clientsLock.Unlock()
+
+	close(client.done)
+	c.totalConns.Add(-1)
+}
+
+func (c *Clients) Broadcast(message []byte) {
+	for _, worker := range c.pool.workers {
+		select {
+		case worker.messages <- message:
+		default:
+			logging.Errorf("Worker queue full, dropping message")
 		}
 	}
-	return nil
 }
 
-var clients = &Clients{
-	clients: make(map[uint64]*websocket.Conn),
+func (c *Clients) clientWriter(client *Client) {
+	defer client.Conn.Close()
+
+	for {
+		select {
+		case message := <-client.send:
+			err := client.Conn.WriteMessage(websocket.BinaryMessage, message)
+			if err != nil {
+				logging.Errorf("Error writing to client %d: %v", client.ID, err)
+				c.Remove(client)
+				return
+			}
+		case <-client.done:
+			return
+		}
+	}
 }
 
 var clientCounter uint32
