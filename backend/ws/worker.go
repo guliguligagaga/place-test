@@ -21,7 +21,7 @@ type Worker struct {
 const (
 	numWorkers          = 16    // Number of worker goroutines
 	workerQueueSize     = 10000 // Size of worker message queue
-	clientQueueSize     = 64    // Size of individual client queue
+	clientQueueSize     = 256   // Size of individual client queue
 	batchSize           = 100   // Number of messages to batch
 	batchTimeout        = 50 * time.Millisecond
 	maxClientsPerWorker = 5000 // Maximum clients per worker
