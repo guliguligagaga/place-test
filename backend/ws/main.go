@@ -46,6 +46,7 @@ func Run() {
 	consumer := web.WithKafkaConsumer(r, kafkaConsumer)
 
 	instance := web.MakeServer(ginEngine, web.WithDefaultRedis, consumer)
+	instance.AddCloseOnExit(clients)
 	redisClient = instance.Redis()
 	instance.Run()
 }
@@ -80,7 +81,6 @@ func handleWebSocket(c *gin.Context) {
 	clients.Remove(client)
 }
 
-// Modified kafkaConsumer function
 func kafkaConsumer(r *kafka.Reader) {
 	for {
 		m, err := r.ReadMessage(context.Background())

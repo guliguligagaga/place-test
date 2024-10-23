@@ -2,6 +2,7 @@ package web
 
 import (
 	"backend/logging"
+	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -11,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
+	"time"
 )
 
 type Server struct {
@@ -30,6 +33,7 @@ var WithGinEngine = func(f func(r *gin.Engine)) func(s *Server) {
 	return func(s *Server) {
 		s.route = gin.Default()
 		s.route.Use(logging.Ginrus())
+		s.route.Use(recoveryMiddleware())
 		f(s.route)
 	}
 }
@@ -120,10 +124,20 @@ func (i *Server) Run() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logging.Errorf("Shutting down...")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
 	for _, cl := range i.closeOnExit {
 		if err := cl.Close(); err != nil {
 			log.Printf("Error closing: %v", err)
 		}
+	}
+
+	select {
+	case <-ctx.Done():
+		logging.Errorf("shutdown timed out")
+	default:
+		logging.Infof("shutdown completed successfully")
 	}
 }
 
@@ -159,4 +173,20 @@ func (i *Server) checkReadiness() bool {
 		}
 	}
 	return true
+}
+
+func recoveryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				stack := debug.Stack()
+				logging.Errorf("panic recovered %v stack: %s", err, string(stack))
+
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"error": "Internal Server Error",
+				})
+			}
+		}()
+		c.Next()
+	}
 }

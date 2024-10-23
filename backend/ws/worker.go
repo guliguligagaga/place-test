@@ -91,3 +91,14 @@ func (w *Worker) sendBatch(messages [][]byte) {
 		}
 	}
 }
+
+func (w *Worker) close() {
+	//stop processing messages
+	close(w.done)
+
+	w.clientsLock.Lock()
+	for _, client := range w.clients {
+		close(client.done)
+	}
+	w.clientsLock.Unlock()
+}

@@ -33,6 +33,10 @@ func (c *Client) Send(data []byte) {
 func (c *Clients) Add(conn *websocket.Conn) *Client {
 	clientID := generateClientID()
 	workerIndex := int(clientID % uint64(numWorkers))
+	if c.pool == nil {
+		conn.Close()
+		return nil
+	}
 	worker := c.pool.workers[workerIndex]
 
 	client := &Client{
@@ -55,6 +59,15 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 	c.totalConns.Add(1)
 	go c.clientWriter(client)
 	return client
+}
+
+func (c *Clients) Close() error {
+	pool := c.pool
+	c.pool = nil
+	for _, worker := range pool.workers {
+		worker.close()
+	}
+	return nil
 }
 
 func (c *Clients) Remove(client *Client) {
