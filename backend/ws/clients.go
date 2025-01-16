@@ -48,10 +48,11 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 
 	selectedWorker.clientsLock.Lock()
 	selectedWorker.clients[clientID] = client
-	selectedWorker.metrics.activeClients.Add(1)
 	selectedWorker.clientsLock.Unlock()
+	selectedWorker.metrics.activeClients.Add(1)
 
 	c.totalConns.Add(1)
+	c.pool.metrics.activeClients.Add(1)
 
 	go c.clientWriter(client)
 	go c.clientReader(client)
@@ -72,6 +73,7 @@ func (c *Clients) clientReader(client *Client) {
 		_, _, err := client.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
+				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure) {
 				logging.Errorf("read error: %v", err)
@@ -94,8 +96,8 @@ func (c *Clients) Remove(client *Client) {
 		delete(client.worker.clients, client.ID)
 		client.worker.metrics.activeClients.Add(-1)
 		client.worker.clientsLock.Unlock()
-
 		c.totalConns.Add(-1)
+		c.pool.metrics.activeClients.Add(-1)
 		client.Conn.Close()
 	}
 }
