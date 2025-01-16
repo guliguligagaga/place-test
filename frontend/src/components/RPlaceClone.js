@@ -326,7 +326,7 @@ const RPlaceClone = ({authEnabled}) => {
 
     return (
         <AppContainer>
-            <Header>r/place Clone</Header>
+            <Header>Choose a color and place a pixel ;)</Header>
             {isLoading ? (
                 <div>Loading...</div>
             ) : authEnabled ? (
