@@ -3,8 +3,8 @@ package ws
 import (
 	"backend/logging"
 	"github.com/gorilla/websocket"
-	"math/rand"
 	"sync/atomic"
+	"time"
 )
 
 type Clients struct {
@@ -18,100 +18,200 @@ func NewClients() *Clients {
 	}
 }
 
-type Client struct {
-	ID          uint64
-	Conn        *websocket.Conn
-	send        chan []byte
-	done        chan struct{}
-	workerIndex int
-}
-
-func (c *Client) Send(data []byte) {
-	c.send <- data
-}
-
 func (c *Clients) Add(conn *websocket.Conn) *Client {
+	// Find least loaded worker
+	var selectedWorker *Worker
+	minClients := int32(maxClientsPerWorker)
+
+	for _, worker := range c.pool.workers {
+		numClients := worker.metrics.activeClients.Load()
+		if numClients < minClients {
+			minClients = numClients
+			selectedWorker = worker
+		}
+	}
+
+	if selectedWorker == nil || minClients >= maxClientsPerWorker {
+		logging.Errorf("failed to choose worker for client")
+		return nil
+	}
 	clientID := generateClientID()
-	workerIndex := int(clientID % uint64(numWorkers))
-	if c.pool == nil {
-		conn.Close()
-		return nil
-	}
-	worker := c.pool.workers[workerIndex]
-
+	logging.Debugf("client %d assigned to worker %d", clientID, selectedWorker.id)
 	client := &Client{
-		ID:          clientID,
-		Conn:        conn,
-		send:        make(chan []byte, clientQueueSize),
-		done:        make(chan struct{}),
-		workerIndex: workerIndex,
+		ID:     clientID,
+		Conn:   conn,
+		send:   make(chan []byte, clientQueueSize),
+		done:   make(chan struct{}),
+		worker: selectedWorker,
 	}
+	client.lastPing.Store(time.Now().UnixNano())
 
-	worker.clientsLock.Lock()
-	if len(worker.clients) >= maxClientsPerWorker {
-		worker.clientsLock.Unlock()
-		conn.Close()
-		return nil
-	}
-	worker.clients[clientID] = client
-	worker.clientsLock.Unlock()
+	selectedWorker.clientsLock.Lock()
+	selectedWorker.clients[clientID] = client
+	selectedWorker.metrics.activeClients.Add(1)
+	selectedWorker.clientsLock.Unlock()
 
 	c.totalConns.Add(1)
+
 	go c.clientWriter(client)
+	go c.clientReader(client)
+
 	return client
 }
 
-func (c *Clients) Close() error {
-	pool := c.pool
-	c.pool = nil
-	for _, worker := range pool.workers {
-		worker.close()
+func (c *Clients) clientReader(client *Client) {
+	client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
+	client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
+		client.lastPing.Store(time.Now().UnixNano())
+		return nil
+	})
+
+	for {
+		_, _, err := client.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err,
+				websocket.CloseGoingAway,
+				websocket.CloseAbnormalClosure) {
+				logging.Errorf("read error: %v", err)
+			}
+			break
+		}
 	}
-	return nil
+
+	c.Remove(client)
 }
 
 func (c *Clients) Remove(client *Client) {
-	worker := c.pool.workers[client.workerIndex]
+	select {
+	case <-client.done:
+		return
+	default:
+		close(client.done)
 
-	worker.clientsLock.Lock()
-	delete(worker.clients, client.ID)
-	worker.clientsLock.Unlock()
+		client.worker.clientsLock.Lock()
+		delete(client.worker.clients, client.ID)
+		client.worker.metrics.activeClients.Add(-1)
+		client.worker.clientsLock.Unlock()
 
-	close(client.done)
-	c.totalConns.Add(-1)
+		c.totalConns.Add(-1)
+		client.Conn.Close()
+	}
 }
 
 func (c *Clients) Broadcast(message []byte) {
+	c.pool.metrics.totalMessages.Add(1)
+
 	for _, worker := range c.pool.workers {
 		select {
 		case worker.messages <- message:
 		default:
-			logging.Errorf("Worker queue full, dropping message")
+			c.pool.metrics.droppedMessages.Add(1)
+			logging.Errorf("Worker %d queue full, dropping message", worker.id)
 		}
 	}
 }
 
+func (c *Clients) Close() error {
+	for _, worker := range c.pool.workers {
+		worker.done <- struct{}{}
+	}
+	return nil
+}
+
 func (c *Clients) clientWriter(client *Client) {
-	defer client.Conn.Close()
+	pingTicker := time.NewTicker(pingInterval)
+	defer func() {
+		pingTicker.Stop()
+		client.Conn.Close()
+		logging.Infof("Closed writer for client %d", client.ID)
+	}()
 
 	for {
 		select {
 		case message := <-client.send:
-			err := client.Conn.WriteMessage(websocket.BinaryMessage, message)
+			err := client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err != nil {
-				logging.Errorf("Error writing to client %d: %v", client.ID, err)
+				logging.Errorf("Failed to set deadline timeout %d: %v", client.ID, err)
 				return
 			}
+			if err := client.Conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+				logging.Errorf("Failed writing to client %d: %v", client.ID, err)
+				return
+			}
+			logging.Debugf("Wrote message of size %d bytes to client %d", len(message), client.ID)
+
+		case <-pingTicker.C:
+			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
+				return
+			}
+			logging.Debugf("Sent ping to client %d", client.ID)
+
 		case <-client.done:
+			logging.Debugf("Writer closing for client %d", client.ID)
 			return
 		}
 	}
 }
 
-var clientCounter uint32
+func (w *Worker) cleanupInactiveClients() {
+	threshold := time.Now().Add(-2 * time.Minute).UnixNano()
+	inactiveCount := 0
 
-func generateClientID() uint64 {
-	counter := atomic.AddUint32(&clientCounter, 1)
-	random := rand.Uint32()
-	return (uint64(counter) << 32) | uint64(random)
+	w.clientsLock.Lock()
+	for id, client := range w.clients {
+		if client.lastPing.Load() < threshold {
+			delete(w.clients, id)
+			close(client.done)
+			w.metrics.activeClients.Add(-1)
+			inactiveCount++
+			logging.Infof("Cleaned up inactive client %d (last ping: %v)",
+				id, time.Unix(0, client.lastPing.Load()))
+		}
+	}
+	w.clientsLock.Unlock()
+
+	if inactiveCount > 0 {
+		logging.Infof("Worker %d cleaned up %d inactive clients", w.id, inactiveCount)
+	}
+}
+
+func (w *Worker) sendBatch(messages [][]byte) {
+	logging.Debugf("sending a batch size %d from worker %d", len(messages), w.id)
+	w.clientsLock.RLock()
+	clientCount := len(w.clients)
+	clientsList := make([]*Client, 0, clientCount)
+	for _, client := range w.clients {
+		select {
+		case <-client.done:
+			continue
+		default:
+			clientsList = append(clientsList, client)
+		}
+	}
+	w.clientsLock.RUnlock()
+
+	logging.Debugf("Worker %d sending batch of %d messages to %d clients",
+		w.id, len(messages), len(clientsList))
+
+	droppedCount := 0
+	for _, client := range clientsList {
+		for _, msg := range messages {
+			select {
+			case client.send <- msg:
+			default:
+				droppedCount++
+				logging.Errorf("Client %d queue full (size: %d), dropped message",
+					client.ID, len(client.send))
+			}
+		}
+	}
+
+	if droppedCount > 0 {
+		logging.Warnf("Worker %d dropped %d messages due to full client queues",
+			w.id, droppedCount)
+	}
 }

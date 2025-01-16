@@ -42,3 +42,7 @@ func Infof(format string, v ...interface{}) {
 func Debugf(format string, v ...interface{}) {
 	logger.Debugf(format, v...)
 }
+
+func Warnf(format string, v ...interface{}) {
+	logger.Warnf(format, v...)
+}
