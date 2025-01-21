@@ -51,10 +51,12 @@ func Run() {
 	r := kafka.ReaderConfig{
 		Brokers:        []string{kafkaUrl},
 		Topic:          "grid_updates",
+		GroupID:        os.Getenv("POD_NAME"),
 		MinBytes:       10e3,
 		MaxBytes:       10e6,
 		MaxWait:        500 * time.Millisecond,
 		CommitInterval: time.Second,
+		StartOffset:    kafka.FirstOffset,
 
 		// Enable reading in batches
 		ReadBatchTimeout: 100 * time.Millisecond,
