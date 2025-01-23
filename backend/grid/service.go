@@ -18,7 +18,7 @@ type Service struct {
 }
 
 func NewGridService(ctx context.Context, redisClient *redis.Client) *Service {
-	err := redisClient.XGroupCreate(context.Background(), os.Getenv("REDIS_GRID_KEY"), "grid-sync-consumer-group", "0").Err()
+	err := redisClient.XGroupCreate(context.Background(), "grid_updates", "grid-sync-consumer-group", "0").Err()
 	if !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
 		panic(err)
 	}
@@ -40,7 +40,7 @@ func (s *Service) consumer() error {
 		streams, err := s.client.XReadGroup(s.ctx, &redis.XReadGroupArgs{
 			Group:    "grid-sync-consumer-group",
 			Consumer: os.Getenv("POD_NAME"),
-			Streams:  []string{s.gridKey, ">"},
+			Streams:  []string{"grid_updates", ">"},
 			Count:    1,
 			Block:    time.Second * 1,
 		}).Result()
@@ -56,7 +56,7 @@ func (s *Service) consumer() error {
 					continue
 				}
 
-				s.client.XAck(s.ctx, s.gridKey, "grid-sync-consumer-group", message.ID)
+				s.client.XAck(s.ctx, "grid_updates", "grid-sync-consumer-group", message.ID)
 			}
 		}
 	}
