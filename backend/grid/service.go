@@ -19,7 +19,7 @@ type Service struct {
 
 func NewGridService(ctx context.Context, redisClient *redis.Client) *Service {
 	err := redisClient.XGroupCreate(context.Background(), "grid_updates", "grid-sync-consumer-group", "0").Err()
-	if !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
+	if err != nil && !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
 		panic(err)
 	}
 	return &Service{
