@@ -42,7 +42,7 @@ func (s *Service) consumer() error {
 			Consumer: os.Getenv("POD_NAME"),
 			Streams:  []string{"grid_updates", ">"},
 			Count:    1,
-			Block:    time.Second * 1,
+			Block:    0,
 		}).Result()
 
 		if err != nil && err != redis.Nil {
@@ -88,6 +88,10 @@ func (s *Service) handle(msg redis.XMessage) error {
 		return fmt.Errorf("failed to update grid status: %w", err)
 	}
 
+	if err = s.broadcast([]byte(messageValue)); err != nil {
+		return fmt.Errorf("failed to broadcast message: %w", err)
+	}
+
 	return nil
 }
 
@@ -117,6 +121,10 @@ func (s *Service) updateGridStatus(value []byte) error {
 		offset,
 		cell.Color).Result()
 	return err
+}
+
+func (s *Service) broadcast(bytes []byte) error {
+	return s.client.Publish(s.ctx, "grid_updates_brd", bytes).Err()
 }
 
 func calculateOffset(y, x uint16) int64 {

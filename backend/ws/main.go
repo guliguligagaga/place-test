@@ -8,7 +8,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -53,10 +52,7 @@ func Run() {
 	instance.AddCloseOnExit(localCache)
 	redisClient = instance.Redis()
 	instance.AddOnExit(cancelFunc)
-	go func() {
-		err := consumer(ctx, redisClient)
-		panic("failed to create consumer " + err.Error())
-	}()
+	go consumer(ctx, redisClient)
 	instance.Run()
 }
 
@@ -76,50 +72,24 @@ func handleWebSocket(c *gin.Context) {
 
 	go sendLatestStateAndUpdates(client)
 }
-func consumer(ctx context.Context, cli redis.UniversalClient) error {
-	err := cli.XGroupCreate(context.Background(), "grid_updates", "websocket-group", "0").Err()
-	if err != nil && !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
-		return err
-	}
-	for {
+func consumer(ctx context.Context, cli redis.UniversalClient) {
+
+	pubsub := cli.Subscribe(context.Background(), "grid_updates_brd")
+	defer pubsub.Close()
+
+	for msg := range pubsub.Channel() {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		default:
 		}
-
-		streams, err := cli.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    "websocket-group",
-			Consumer: os.Getenv("POD_NAME"),
-			Streams:  []string{"grid_updates", ">"},
-			Count:    1,
-			Block:    time.Second * 1,
-		}).Result()
-
-		if err != nil && err != redis.Nil {
-			return err
-		}
-
-		for _, stream := range streams {
-			for _, message := range stream.Messages {
-				var messageValue string
-
-				if value, ok := message.Values["values"].(string); ok {
-					messageValue = value
-				}
-				if messageValue == "" {
-					continue
-				}
-				data := addMsgType(msgTypeUpdate, []byte(messageValue))
-				logging.Debugf("got a new message from kafka, broadcasting it")
-				clients.Broadcast(data)
-				cacheKey := fmt.Sprintf("%s:updates:%d", gridKey, getCurrentEpoch())
-				localCache.Update(cacheKey, data)
-
-				cli.XAck(ctx, "grid_updates", "grid-sync-consumer-group", message.ID)
-			}
-		}
+		data := addMsgType(msgTypeUpdate, []byte(msg.Payload))
+		logging.Debugf("got a new message from kafka, broadcasting it")
+		clients.Broadcast(data)
+		cacheKey := fmt.Sprintf("%s:updates:%d", gridKey, getCurrentEpoch())
+		localCache.Update(cacheKey, data)
 	}
+
 }
 
 func getCurrentEpoch() int64 {
