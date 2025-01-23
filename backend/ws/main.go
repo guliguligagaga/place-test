@@ -8,11 +8,11 @@ import (
 	"github.com/go-redis/redis/v8"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/segmentio/kafka-go"
 )
 
 const (
@@ -22,8 +22,6 @@ const (
 
 	redisRetryAttempts = 3
 	redisRetryDelay    = 500 * time.Millisecond
-	kafkaMaxRetries    = 3
-	kafkaRetryDelay    = 1 * time.Second
 )
 
 var (
@@ -46,31 +44,19 @@ func Run() {
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
 		r.GET("/ws", handleWebSocket)
 	})
-
-	kafkaUrl := fmt.Sprintf("%s:%s", os.Getenv("KAFKA_URL"), os.Getenv("KAFKA_PORT"))
-	r := kafka.ReaderConfig{
-		Brokers:        []string{kafkaUrl},
-		Topic:          "grid_updates",
-		GroupID:        os.Getenv("POD_NAME"),
-		MinBytes:       10e3,
-		MaxBytes:       10e6,
-		MaxWait:        500 * time.Millisecond,
-		CommitInterval: time.Second,
-		StartOffset:    kafka.FirstOffset,
-
-		// Enable reading in batches
-		ReadBatchTimeout: 100 * time.Millisecond,
-		MaxAttempts:      kafkaMaxRetries,
-	}
 	localCache = NewCache(5)
 	go localCache.runCleanup()
-	consumer := web.WithKafkaConsumer(r, kafkaConsumer)
+	ctx, cancelFunc := context.WithCancel(context.Background())
 
-	instance := web.MakeServer(ginEngine, web.WithDefaultRedis, consumer)
+	instance := web.MakeServer(ginEngine, web.WithDefaultRedis)
 	instance.AddCloseOnExit(clients)
 	instance.AddCloseOnExit(localCache)
 	redisClient = instance.Redis()
-
+	instance.AddOnExit(cancelFunc)
+	go func() {
+		err := consumer(ctx, redisClient)
+		panic("failed to create consumer " + err.Error())
+	}()
 	instance.Run()
 }
 
@@ -90,29 +76,48 @@ func handleWebSocket(c *gin.Context) {
 
 	go sendLatestStateAndUpdates(client)
 }
-
-func kafkaConsumer(r *kafka.Reader) {
-	ctx := context.Background()
-
+func consumer(ctx context.Context, cli redis.UniversalClient) error {
+	err := cli.XGroupCreate(context.Background(), "grid_updates", "websocket-group", "0").Err()
+	if err != nil && !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
+		return err
+	}
 	for {
-		m, err := r.ReadMessage(ctx)
-		if err != nil {
-			if err == kafka.ErrGroupClosed {
-				return
-			}
-			logging.Errorf("Kafka batch read error: %v", err)
-			time.Sleep(kafkaRetryDelay)
-			continue
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
 		}
 
-		data := addMsgType(msgTypeUpdate, m.Value)
-		logging.Debugf("got a new message from kafka, broadcasting it")
-		clients.Broadcast(data)
-		cacheKey := fmt.Sprintf("%s:updates:%d", gridKey, getCurrentEpoch())
-		localCache.Update(cacheKey, data)
+		streams, err := cli.XReadGroup(ctx, &redis.XReadGroupArgs{
+			Group:    "websocket-group",
+			Consumer: os.Getenv("POD_NAME"),
+			Streams:  []string{"grid_updates", ">"},
+			Count:    1,
+			Block:    time.Second * 1,
+		}).Result()
 
-		if err := r.CommitMessages(ctx, m); err != nil {
-			logging.Errorf("Failed to commit messages: %v", err)
+		if err != nil && err != redis.Nil {
+			return err
+		}
+
+		for _, stream := range streams {
+			for _, message := range stream.Messages {
+				var messageValue string
+
+				if value, ok := message.Values["values"].(string); ok {
+					messageValue = value
+				}
+				if messageValue == "" {
+					continue
+				}
+				data := addMsgType(msgTypeUpdate, []byte(messageValue))
+				logging.Debugf("got a new message from kafka, broadcasting it")
+				clients.Broadcast(data)
+				cacheKey := fmt.Sprintf("%s:updates:%d", gridKey, getCurrentEpoch())
+				localCache.Update(cacheKey, data)
+
+				cli.XAck(ctx, "grid_updates", "grid-sync-consumer-group", message.ID)
+			}
 		}
 	}
 }
@@ -196,18 +201,4 @@ func addMsgType(msgType uint8, msg []byte) []byte {
 	result[0] = msgType
 	copy(result[1:], msg)
 	return result
-}
-
-func init() {
-	requiredEnvVars := []string{
-		"KAFKA_URL",
-		"KAFKA_PORT",
-		"REDIS_GRID_KEY",
-	}
-
-	for _, env := range requiredEnvVars {
-		if os.Getenv(env) == "" {
-			panic(fmt.Sprintf("Required environment variable %s is not set", env))
-		}
-	}
 }
