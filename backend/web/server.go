@@ -68,10 +68,14 @@ var WithRedis = func(c redis.UniversalClient) func(s *Server) {
 	}
 }
 
-var WithKafkaWriter = func(cfg *kafka.Writer) func(s *Server) {
+var WithConsumer = func(f func() error) func(s *Server) {
 	return func(s *Server) {
-		s.kafkaWriters = append(s.kafkaWriters, cfg)
-		s.closeOnExit = append(s.closeOnExit, cfg)
+		go func() {
+			err := f()
+			if err != nil {
+				panic("failed to run consumer " + err.Error())
+			}
+		}()
 	}
 }
 
@@ -92,6 +96,19 @@ func MakeServer(opts ...Opts) *Server {
 
 func (i *Server) AddCloseOnExit(c io.Closer) {
 	i.closeOnExit = append(i.closeOnExit, c)
+}
+
+type closeWrapper struct {
+	f func()
+}
+
+func (c closeWrapper) Close() error {
+	c.f()
+	return nil
+}
+
+func (i *Server) AddOnExit(f func()) {
+	i.closeOnExit = append(i.closeOnExit, closeWrapper{f: f})
 }
 
 func (i *Server) AddPingFunction(f func() error) {

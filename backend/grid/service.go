@@ -5,76 +5,112 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"github.com/segmentio/kafka-go"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Service struct {
-	redisClient *redis.Client
-	gridKey     string
+	client  *redis.Client
+	gridKey string
+	ctx     context.Context
 }
 
-func NewGridService(redisClient *redis.Client) *Service {
+func NewGridService(ctx context.Context, redisClient *redis.Client) *Service {
+	err := redisClient.XGroupCreate(context.Background(), os.Getenv("REDIS_GRID_KEY"), "grid-sync-consumer-group", "0").Err()
+	if !strings.Contains(fmt.Sprint(err), "BUSYGROUP") {
+		panic(err)
+	}
 	return &Service{
-		redisClient: redisClient,
-		gridKey:     os.Getenv("REDIS_GRID_KEY"),
+		ctx:     ctx,
+		client:  redisClient,
+		gridKey: os.Getenv("REDIS_GRID_KEY"),
 	}
 }
 
-func consumer(s *Service) func(k *kafka.Reader) {
-	return func(k *kafka.Reader) {
-		for {
-			m, err := k.ReadMessage(context.Background())
-			if err != nil {
-				fmt.Println("failed to read message", err.Error())
-			}
-			if err = s.handle(context.Background(), m); err != nil {
-				fmt.Printf("failed to handle message: %s", err.Error())
+func (s *Service) consumer() error {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return nil
+		default:
+		}
+
+		streams, err := s.client.XReadGroup(s.ctx, &redis.XReadGroupArgs{
+			Group:    "grid-sync-consumer-group",
+			Consumer: os.Getenv("POD_NAME"),
+			Streams:  []string{s.gridKey, ">"},
+			Count:    1,
+			Block:    time.Second * 1,
+		}).Result()
+
+		if err != nil && err != redis.Nil {
+			return err
+		}
+
+		for _, stream := range streams {
+			for _, message := range stream.Messages {
+				err = s.handle(message)
+				if err != nil {
+					continue
+				}
+
+				s.client.XAck(s.ctx, s.gridKey, "grid-sync-consumer-group", message.ID)
 			}
 		}
 	}
 }
-func (s *Service) handle(ctx context.Context, msg kafka.Message) error {
+
+func (s *Service) handle(msg redis.XMessage) error {
 	updateTime := time.Now().UnixMilli()
 	updateEpoch := updateTime / 60_000
+	var messageValue string
 
-	if err := s.storeUpdate(ctx, updateEpoch, msg); err != nil {
+	if value, ok := msg.Values["values"].(string); ok {
+		messageValue = value
+	}
+
+	timestampStr := strings.Split(msg.ID, "-")[0]
+	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("failed to parse message timestamp: %w", err)
+	}
+	if err = s.storeUpdate(updateEpoch, messageValue, timestamp); err != nil {
 		return fmt.Errorf("failed to store update: %w", err)
 	}
 
-	if err := s.updateLatestEpoch(ctx, updateEpoch); err != nil {
+	if err = s.updateLatestEpoch(updateEpoch); err != nil {
 		return fmt.Errorf("failed to update epoch: %w", err)
 	}
 
-	if err := s.updateGridStatus(ctx, msg.Value); err != nil {
+	if err = s.updateGridStatus([]byte(messageValue)); err != nil {
 		return fmt.Errorf("failed to update grid status: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Service) storeUpdate(ctx context.Context, epoch int64, msg kafka.Message) error {
-	return s.redisClient.ZAdd(ctx,
+func (s *Service) storeUpdate(epoch int64, messageValue string, timestamp int64) error {
+	return s.client.ZAdd(s.ctx,
 		fmt.Sprintf("%s:%s:%d", s.gridKey, UpdatesKeyPrefix, epoch),
 		&redis.Z{
-			Score:  float64(msg.Time.UnixMilli()),
-			Member: string(msg.Value),
+			Score:  float64(timestamp),
+			Member: messageValue,
 		}).Err()
 }
 
-func (s *Service) updateLatestEpoch(ctx context.Context, epoch int64) error {
-	return s.redisClient.Set(ctx,
+func (s *Service) updateLatestEpoch(epoch int64) error {
+	return s.client.Set(s.ctx,
 		LatestEpochKey,
 		strconv.FormatInt(epoch, 10),
 		0).Err()
 }
 
-func (s *Service) updateGridStatus(ctx context.Context, value []byte) error {
+func (s *Service) updateGridStatus(value []byte) error {
 	cell := protocol.Decode([8]byte(value))
 	offset := calculateOffset(cell.Y, cell.X)
-	_, err := s.redisClient.BitField(ctx,
+	_, err := s.client.BitField(s.ctx,
 		s.gridKey,
 		"SET",
 		"u4",
