@@ -12,13 +12,12 @@ type Req struct {
 }
 
 func Run() {
-	redisClient := web.MakeRedisClient()
-	gridHolder := NewGridHolder("grid_updates", redisClient)
+	redis := web.DefaultRedis()
+	gridHolder := NewGridHolder("grid_updates", redis)
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
 		r.POST("/api/draw", func(c *gin.Context) {
 			modifyCell(c, gridHolder)
 		})
 	})
-	instance := web.MakeServer(ginEngine, web.WithRedis(redisClient))
-	instance.Run()
+	web.NewServer(web.WithRedis(redis), ginEngine).Run()
 }

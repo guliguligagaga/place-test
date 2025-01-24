@@ -39,21 +39,23 @@ var (
 )
 
 func Run() {
-
 	ginEngine := web.WithGinEngine(func(r *gin.Engine) {
 		r.GET("/ws", handleWebSocket)
 	})
 	localCache = NewCache(5)
 	go localCache.runCleanup()
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	redisClient = web.DefaultRedis()
 
-	instance := web.MakeServer(ginEngine, web.WithDefaultRedis)
-	instance.AddCloseOnExit(clients)
-	instance.AddCloseOnExit(localCache)
-	redisClient = instance.Redis()
-	instance.AddOnExit(cancelFunc)
-	go consumer(ctx, redisClient)
-	instance.Run()
+	server := web.NewServer(web.WithRedis(redisClient),
+		ginEngine,
+		web.WithBackgroundWorker(func(ctx context.Context) {
+			consumer(ctx, redisClient)
+		}),
+	)
+	server.RegisterShutdownHook(clients)
+	server.RegisterShutdownHook(localCache)
+
+	server.Run()
 }
 
 func handleWebSocket(c *gin.Context) {
