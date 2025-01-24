@@ -4,9 +4,6 @@ import (
 	"backend/logging"
 	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
-	"github.com/segmentio/kafka-go"
 	"io"
 	"log"
 	"net/http"
@@ -15,181 +12,253 @@ import (
 	"runtime/debug"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"github.com/segmentio/kafka-go"
 )
 
+const (
+	defaultServerAddr     = "0.0.0.0:8080"
+	defaultShutdownTimer  = 3 * time.Second
+	defaultMaxHeaderBytes = 1 << 20 // 1 MB
+	defaultReadTimeout    = 10 * time.Second
+	defaultWriteTimeout   = 10 * time.Second
+	defaultIdleTimeout    = 30 * time.Second
+)
+
+func NewDefaultConfig() ServerConfig {
+	return ServerConfig{
+		Address:        defaultServerAddr,
+		ShutdownTimer:  defaultShutdownTimer,
+		MaxHeaderBytes: defaultMaxHeaderBytes,
+		ReadTimeout:    defaultReadTimeout,
+		WriteTimeout:   defaultWriteTimeout,
+		IdleTimeout:    defaultIdleTimeout,
+	}
+}
+
 type Server struct {
-	closeOnExit    []io.Closer
-	onStart        []func()
-	route          *gin.Engine
+	ctx            context.Context
+	cancelFunc     context.CancelFunc
+	router         *gin.Engine
 	redis          redis.UniversalClient
-	pingFunctions  []func() error
 	kafkaConsumers []*kafka.Reader
 	kafkaWriters   []*kafka.Writer
+	shutdownHooks  []io.Closer
+	startupHooks   []func(ctx context.Context)
+	healthChecks   []func(ctx context.Context) error
+	config         ServerConfig
 }
 
-type Opts func(*Server)
+type ServerConfig struct {
+	Address        string
+	ShutdownTimer  time.Duration
+	MaxHeaderBytes int
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+	IdleTimeout    time.Duration
+}
 
-var WithGinEngine = func(f func(r *gin.Engine)) func(s *Server) {
-	return func(s *Server) {
-		s.route = gin.Default()
-		s.route.Use(logging.Ginrus())
-		s.route.Use(recoveryMiddleware())
-		f(s.route)
+type ServerOption func(*Server)
+
+func NewServer(opts ...ServerOption) *Server {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Server{
+		ctx:           ctx,
+		cancelFunc:    cancel,
+		shutdownHooks: make([]io.Closer, 0),
+		startupHooks:  make([]func(context.Context), 0),
+		healthChecks:  make([]func(context.Context) error, 0),
+		config:        NewDefaultConfig(),
 	}
-}
 
-var WithKafkaConsumer = func(cfg kafka.ReaderConfig, f func(k *kafka.Reader)) func(s *Server) {
-	return func(s *Server) {
-		r := kafka.NewReader(cfg)
-		s.kafkaConsumers = append(s.kafkaConsumers, r)
-		s.onStart = append(s.onStart, func() {
-			f(r)
-		})
-		s.closeOnExit = append(s.closeOnExit, r)
+	for _, opt := range opts {
+		opt(s)
 	}
-}
 
-var WithDefaultRedis = func(s *Server) {
-	client := MakeRedisClient()
-	s.redis = client
-	s.AddPingFunction(func() error {
-		return s.redis.Ping(s.redis.Context()).Err()
-	})
-	s.closeOnExit = append(s.closeOnExit, s.redis)
-}
-
-var WithRedis = func(c redis.UniversalClient) func(s *Server) {
-	return func(s *Server) {
-		s.redis = c
-		s.AddPingFunction(func() error {
-			return s.redis.Ping(s.redis.Context()).Err()
-		})
-		s.closeOnExit = append(s.closeOnExit, s.redis)
-	}
-}
-
-var WithConsumer = func(f func() error) func(s *Server) {
-	return func(s *Server) {
-		go func() {
-			err := f()
-			if err != nil {
-				panic("failed to run consumer " + err.Error())
-			}
-		}()
-	}
-}
-
-func MakeRedisClient() *redis.Client {
-	url := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
-	return redis.NewClient(&redis.Options{
-		Addr: url,
-	})
-}
-
-func MakeServer(opts ...Opts) *Server {
-	s := &Server{}
-	for _, o := range opts {
-		o(s)
-	}
 	return s
 }
 
-func (i *Server) AddCloseOnExit(c io.Closer) {
-	i.closeOnExit = append(i.closeOnExit, c)
+func WithContext(ctx context.Context) ServerOption {
+	return func(s *Server) {
+		if s.cancelFunc != nil {
+			s.cancelFunc()
+		}
+		s.ctx, s.cancelFunc = context.WithCancel(ctx)
+	}
 }
 
-type closeWrapper struct {
-	f func()
+func WithGinEngine(routerConfig func(r *gin.Engine)) ServerOption {
+	return func(s *Server) {
+		s.router = gin.Default()
+		s.router.Use(
+			logging.Ginrus(),
+			recoveryMiddleware(),
+		)
+		routerConfig(s.router)
+	}
 }
 
-func (c closeWrapper) Close() error {
-	c.f()
-	return nil
+func WithKafkaConsumer(cfg kafka.ReaderConfig, handler func(k *kafka.Reader)) ServerOption {
+	return func(s *Server) {
+		reader := kafka.NewReader(cfg)
+		s.kafkaConsumers = append(s.kafkaConsumers, reader)
+		s.startupHooks = append(s.startupHooks, func(ctx context.Context) {
+			handler(reader)
+		})
+		s.shutdownHooks = append(s.shutdownHooks, reader)
+	}
 }
 
-func (i *Server) AddOnExit(f func()) {
-	i.closeOnExit = append(i.closeOnExit, closeWrapper{f: f})
+func WithRedis(client redis.UniversalClient) ServerOption {
+	return func(s *Server) {
+		s.redis = client
+		s.healthChecks = append(s.healthChecks, func(ctx context.Context) error {
+			return client.Ping(ctx).Err()
+		})
+		s.shutdownHooks = append(s.shutdownHooks, client)
+	}
 }
 
-func (i *Server) AddPingFunction(f func() error) {
-	i.pingFunctions = append(i.pingFunctions, f)
+func DefaultRedis() redis.UniversalClient {
+	return newDefaultRedisClient()
 }
 
-func (i *Server) Redis() redis.UniversalClient {
-	return i.redis
+func WithDefaultRedis() ServerOption {
+	return func(s *Server) {
+		WithRedis(newDefaultRedisClient())(s)
+	}
 }
 
-func (i *Server) Run() {
+func WithBackgroundWorker(worker func(ctx context.Context)) ServerOption {
+	return func(s *Server) {
+		s.startupHooks = append(s.startupHooks, func(ctx context.Context) {
+			go worker(ctx)
+		})
+	}
+}
+
+func (s *Server) RegisterShutdownHook(closer io.Closer) {
+	s.shutdownHooks = append(s.shutdownHooks, closer)
+}
+
+func (s *Server) RegisterHealthCheck(check func(ctx context.Context) error) {
+	s.healthChecks = append(s.healthChecks, check)
+}
+
+func (s *Server) Redis() redis.UniversalClient {
+	return s.redis
+}
+
+func (s *Server) Run() {
+	defer s.cancelFunc() // Ensure context is cancelled when we exit
+
 	quit := make(chan os.Signal, 1)
-	if i.route != nil {
-		i.registerHealthRoutes(i.route)
-		go func() {
-			srv := &http.Server{Addr: "0.0.0.0:8080", Handler: i.route}
-			if err := srv.ListenAndServe(); err != nil {
-				log.Printf("Error starting server: %v\n", err)
-				quit <- syscall.SIGTERM
-				i.closeOnExit = append(i.closeOnExit, srv)
-			}
-		}()
-
-	}
-
-	for _, f := range i.onStart {
-		go f()
-	}
-
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	for _, hook := range s.startupHooks {
+		hook(s.ctx)
+	}
+
+	if s.router != nil {
+		s.registerHealthEndpoints()
+		go s.startHTTPServer()
+	}
+
 	<-quit
-	logging.Errorf("Shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), s.config.ShutdownTimer)
+	defer shutdownCancel()
+
+	s.cancelFunc()
+
+	for _, hook := range s.shutdownHooks {
+		if err := hook.Close(); err != nil {
+			logging.Errorf("Shutdown hook error: %v", err)
+		}
+	}
+
+	select {
+	case <-shutdownCtx.Done():
+		logging.Errorf("Shutdown timed out")
+	default:
+		logging.Infof("Shutdown completed successfully")
+	}
+}
+
+func (s *Server) startHTTPServer() {
+	srv := &http.Server{
+		Addr:           s.config.Address,
+		Handler:        s.router,
+		ReadTimeout:    s.config.ReadTimeout,
+		WriteTimeout:   s.config.WriteTimeout,
+		MaxHeaderBytes: s.config.MaxHeaderBytes,
+	}
+
+	s.shutdownHooks = append(s.shutdownHooks, srv)
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logging.Errorf("HTTP server error: %v", err)
+		s.cancelFunc()
+	}
+}
+func (s *Server) startBackgroundWorkers() {
+	for _, hook := range s.startupHooks {
+		go hook(s.ctx)
+	}
+}
+
+func (s *Server) handleGracefulShutdown(quit <-chan os.Signal) {
+	<-quit
+	logging.Errorf("Initiating shutdown sequence...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimer)
 	defer cancel()
 
-	for _, cl := range i.closeOnExit {
-		if err := cl.Close(); err != nil {
-			log.Printf("Error closing: %v", err)
+	for _, hook := range s.shutdownHooks {
+		if err := hook.Close(); err != nil {
+			log.Printf("Shutdown hook error: %v", err)
 		}
 	}
 
 	select {
 	case <-ctx.Done():
-		logging.Errorf("shutdown timed out")
+		logging.Errorf("Shutdown timed out")
 	default:
-		logging.Infof("shutdown completed successfully")
+		logging.Infof("Shutdown completed successfully")
 	}
 }
 
-func (i *Server) registerHealthRoutes(route *gin.Engine) {
-	// Liveness probe route
-	route.GET("/healthz", func(c *gin.Context) {
-		// Return a 200 status to indicate the service is alive
-		c.JSON(http.StatusOK, gin.H{
-			"status": "alive",
-		})
+func (s *Server) registerHealthEndpoints() {
+	s.router.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "alive"})
 	})
 
-	// Readiness probe route
-	route.GET("/readyz", func(c *gin.Context) {
-		isReady := i.checkReadiness()
-		if isReady {
-			c.JSON(http.StatusOK, gin.H{
-				"status": "ready",
-			})
-		} else {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "not ready",
-			})
+	s.router.GET("/readyz", func(c *gin.Context) {
+		if s.isReady() {
+			c.JSON(http.StatusOK, gin.H{"status": "ready"})
+			return
 		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
 	})
 }
 
-func (i *Server) checkReadiness() bool {
-	for _, f := range i.pingFunctions {
-		if err := f(); err != nil {
-			log.Printf("Error pinging: %v", err)
+func (s *Server) isReady() bool {
+	for _, check := range s.healthChecks {
+		if err := check(s.ctx); err != nil {
+			log.Printf("Health check failed: %v", err)
 			return false
 		}
 	}
 	return true
+}
+
+func newDefaultRedisClient() *redis.Client {
+	addr := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
+	return redis.NewClient(&redis.Options{
+		Addr: addr,
+	})
 }
 
 func recoveryMiddleware() gin.HandlerFunc {
@@ -197,7 +266,7 @@ func recoveryMiddleware() gin.HandlerFunc {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := debug.Stack()
-				logging.Errorf("panic recovered %v stack: %s", err, string(stack))
+				logging.Errorf("Panic recovered: %v\nStack trace: %s", err, string(stack))
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 					"error": "Internal Server Error",

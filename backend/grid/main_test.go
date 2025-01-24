@@ -33,7 +33,7 @@ func TestCalculateOffset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := calculateOffset(tt.y, tt.x)
+			offset := calculateOffset(tt.y, tt.x, Size)
 			assert.Equal(t, tt.expectedOffset, offset)
 		})
 	}

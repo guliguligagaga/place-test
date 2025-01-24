@@ -4,24 +4,25 @@ import (
 	"backend/web"
 	"context"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
-
-const (
-	size             = 100
-	UpdatesKeyPrefix = "updates"
-	LatestEpochKey   = "latest_epoch"
-)
-
-type Update struct {
-	Timestamp uint64 `json:"time"`
-	Data      string `json:"data"`
-}
 
 func Run() {
-	redisClient := web.MakeRedisClient()
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	s := NewGridService(ctx, redisClient)
-	instance := web.MakeServer(web.WithConsumer(s.consumer), web.WithRedis(redisClient), web.WithGinEngine(func(r *gin.Engine) {}))
-	instance.AddOnExit(cancelFunc)
-	instance.Run()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
+	redis := web.DefaultRedis()
+	s := NewGridService(redis, logger)
+
+	server := web.NewServer(
+		web.WithContext(ctx),
+		web.WithRedis(redis),
+		web.WithGinEngine(func(r *gin.Engine) {}),
+		web.WithBackgroundWorker(s.Start),
+	)
+
+	server.Run()
 }
