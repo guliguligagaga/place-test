@@ -20,6 +20,7 @@ func (c *Cell) Encode() [8]byte {
 	binary.BigEndian.PutUint16(encoded[2:4], combinedY)
 	compactTimestamp := uint32(c.Time - referenceTime)
 	binary.BigEndian.PutUint32(encoded[4:], compactTimestamp)
+
 	return encoded
 }
 
@@ -34,6 +35,7 @@ func Decode(encoded [8]byte) *Cell {
 
 	millisDiff := binary.BigEndian.Uint32(encoded[4:])
 	time := referenceTime + int64(millisDiff)
+
 	return &Cell{
 		X:     x,
 		Y:     y,

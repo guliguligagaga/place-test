@@ -6,7 +6,7 @@ import (
 )
 
 func Run() {
-	instance := web.MakeServer(web.WithGinEngine(registerRoutes))
+	instance := web.NewServer(web.WithGinEngine(registerRoutes))
 	RegisterProvider(provider.NewGoogle())
 	RegisterProvider(provider.NewGitHub())
 

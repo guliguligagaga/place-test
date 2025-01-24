@@ -1,11 +1,12 @@
 package logging
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"log"
 	"os"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 var logger = logrus.Logger{
@@ -45,4 +46,8 @@ func Debugf(format string, v ...interface{}) {
 
 func Warnf(format string, v ...interface{}) {
 	logger.Warnf(format, v...)
+}
+
+func Fatalf(format string, v ...interface{}) {
+	logger.Fatalf(format, v)
 }

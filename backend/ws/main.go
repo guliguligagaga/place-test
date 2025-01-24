@@ -1,16 +1,16 @@
 package ws
 
 import (
-	"backend/logging"
-	"backend/web"
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"net/http"
 	"os"
 	"time"
 
+	"backend/logging"
+	"backend/web"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
 

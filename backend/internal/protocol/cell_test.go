@@ -7,6 +7,8 @@ import (
 )
 
 func TestEncode(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		x        uint16
@@ -35,6 +37,8 @@ func TestEncode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cell := Cell{
 				X:     tt.x,
 				Y:     tt.y,
@@ -42,6 +46,7 @@ func TestEncode(t *testing.T) {
 				Time:  tt.time,
 			}
 			result := cell.Encode()
+
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -50,6 +55,8 @@ func TestEncode(t *testing.T) {
 }
 
 func TestDecode(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		input [8]byte
@@ -86,8 +93,10 @@ func TestDecode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
 			cell := Decode(tt.input)
+
 			if cell.X != tt.x || cell.Y != tt.y || cell.Color != tt.color || cell.Time != tt.time {
 				t.Errorf("want %v, got %v", tt, cell)
 			}
@@ -96,7 +105,7 @@ func TestDecode(t *testing.T) {
 }
 
 func TestEncodeDecode(t *testing.T) {
-
+	t.Parallel()
 	cell := Cell{
 		X:     uint16(12345),
 		Y:     uint16(9321),
@@ -119,7 +128,9 @@ func BenchmarkEncode(b *testing.B) {
 		Color: uint8(7),
 		Time:  int64(referenceTime + 86400000),
 	}
+
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		cell.Encode()
 	}
@@ -129,6 +140,7 @@ func BenchmarkDecode(b *testing.B) {
 	encoded := [8]byte{0x30, 0x39, 0xD4, 0x31, 0x00, 0x51, 0x61, 0x80}
 
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		Decode(encoded)
 	}
@@ -141,8 +153,10 @@ func BenchmarkEncodeDecode(b *testing.B) {
 		Color: uint8(7),
 		Time:  int64(referenceTime + 86400000),
 	}
+
 	b.ReportAllocs()
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		encoded := cell.Encode()
 		Decode(encoded)

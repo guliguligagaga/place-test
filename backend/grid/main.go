@@ -1,21 +1,18 @@
 package grid
 
 import (
-	"backend/web"
 	"context"
+
+	"backend/web"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 func Run() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-
 	redis := web.DefaultRedis()
-	s := NewGridService(redis, logger)
+	s := NewGridService(redis)
 
 	server := web.NewServer(
 		web.WithContext(ctx),

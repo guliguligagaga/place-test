@@ -1,10 +1,11 @@
 package draw
 
 import (
-	"backend/internal/protocol"
 	"context"
-	"github.com/go-redis/redis/v8"
 	"time"
+
+	"backend/internal/protocol"
+	"github.com/go-redis/redis/v8"
 )
 
 type CellBroadcast struct {
@@ -17,6 +18,7 @@ func NewGridHolder(stream string, writer redis.UniversalClient) *CellBroadcast {
 		stream: stream,
 		writer: writer,
 	}
+
 	return holder
 }
 
@@ -27,11 +29,11 @@ func reqToCell(r *Req) protocol.Cell {
 func (gh *CellBroadcast) updateCell(req *Req) error {
 	cell := reqToCell(req)
 	bytes := cell.Encode()
-	_, err := gh.writer.XAdd(context.Background(), &redis.XAddArgs{
+
+	return gh.writer.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: gh.stream,
 		Values: map[string]interface{}{
-			"values": string(bytes[:]), // Store encoded cell as "values" field
+			"values": string(bytes[:]),
 		},
-	}).Result()
-	return err
+	}).Err()
 }

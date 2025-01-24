@@ -1,7 +1,6 @@
 package web
 
 import (
-	"backend/logging"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"backend/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/segmentio/kafka-go"
@@ -78,6 +78,12 @@ func NewServer(opts ...ServerOption) *Server {
 	}
 
 	return s
+}
+
+func WithConfig(c ServerConfig) ServerOption {
+	return func(s *Server) {
+		s.config = c
+	}
 }
 
 func WithContext(ctx context.Context) ServerOption {
@@ -152,8 +158,6 @@ func (s *Server) Redis() redis.UniversalClient {
 }
 
 func (s *Server) Run() {
-	defer s.cancelFunc() // Ensure context is cancelled when we exit
-
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -203,30 +207,10 @@ func (s *Server) startHTTPServer() {
 		s.cancelFunc()
 	}
 }
+
 func (s *Server) startBackgroundWorkers() {
 	for _, hook := range s.startupHooks {
 		go hook(s.ctx)
-	}
-}
-
-func (s *Server) handleGracefulShutdown(quit <-chan os.Signal) {
-	<-quit
-	logging.Errorf("Initiating shutdown sequence...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimer)
-	defer cancel()
-
-	for _, hook := range s.shutdownHooks {
-		if err := hook.Close(); err != nil {
-			log.Printf("Shutdown hook error: %v", err)
-		}
-	}
-
-	select {
-	case <-ctx.Done():
-		logging.Errorf("Shutdown timed out")
-	default:
-		logging.Infof("Shutdown completed successfully")
 	}
 }
 
@@ -238,6 +222,7 @@ func (s *Server) registerHealthEndpoints() {
 	s.router.GET("/readyz", func(c *gin.Context) {
 		if s.isReady() {
 			c.JSON(http.StatusOK, gin.H{"status": "ready"})
+
 			return
 		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
@@ -248,14 +233,17 @@ func (s *Server) isReady() bool {
 	for _, check := range s.healthChecks {
 		if err := check(s.ctx); err != nil {
 			log.Printf("Health check failed: %v", err)
+
 			return false
 		}
 	}
+
 	return true
 }
 
 func newDefaultRedisClient() *redis.Client {
 	addr := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
+
 	return redis.NewClient(&redis.Options{
 		Addr: addr,
 	})

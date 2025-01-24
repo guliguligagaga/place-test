@@ -1,12 +1,12 @@
 package ws
 
 import (
-	"backend/logging"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"backend/logging"
 	"github.com/gorilla/websocket"
 )
 

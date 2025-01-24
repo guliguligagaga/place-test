@@ -1,13 +1,13 @@
 package auth
 
 import (
-	"backend/logging"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"backend/logging"
 	"github.com/gin-gonic/gin"
 )
 

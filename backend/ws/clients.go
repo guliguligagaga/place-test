@@ -1,10 +1,11 @@
 package ws
 
 import (
-	"backend/logging"
-	"github.com/gorilla/websocket"
 	"sync/atomic"
 	"time"
+
+	"backend/logging"
+	"github.com/gorilla/websocket"
 )
 
 type Clients struct {
@@ -62,9 +63,9 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 
 func (c *Clients) clientReader(client *Client) {
 	client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
-	client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
+	_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
 	client.Conn.SetPongHandler(func(string) error {
-		client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
+		_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
 		client.lastPing.Store(time.Now().UnixNano())
 		return nil
 	})

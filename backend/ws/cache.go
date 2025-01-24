@@ -9,11 +9,10 @@ import (
 type Cache struct {
 	data            map[string][][]byte
 	mu              sync.RWMutex
-	done            chan struct{} // For graceful shutdown
+	done            chan struct{}
 	retentionPeriod int64
 }
 
-// NewCache creates a new cache instance
 func NewCache(retentionPeriod int64) *Cache {
 	c := &Cache{
 		data:            make(map[string][][]byte),
@@ -38,7 +37,7 @@ func (c *Cache) Get(key string) ([][]byte, bool) {
 }
 
 func (c *Cache) runCleanup() {
-	ticker := time.NewTicker(1 * time.Minute) // Run cleanup every minute
+	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -55,7 +54,6 @@ func (c *Cache) cleanup() {
 	currentEpoch := getCurrentEpoch()
 	threshold := currentEpoch - c.retentionPeriod
 
-	// Pre-calculate keys to delete to minimize lock time
 	c.mu.RLock()
 	keysToDelete := make([]string, 0)
 	for key := range c.data {
@@ -66,7 +64,6 @@ func (c *Cache) cleanup() {
 	}
 	c.mu.RUnlock()
 
-	// Only lock for actual deletion
 	if len(keysToDelete) > 0 {
 		c.mu.Lock()
 		for _, key := range keysToDelete {

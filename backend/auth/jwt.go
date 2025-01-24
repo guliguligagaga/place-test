@@ -3,10 +3,11 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt"
 	"log"
 	"os"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 const expirationTime = 1 * time.Hour

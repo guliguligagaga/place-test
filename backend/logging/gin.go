@@ -1,10 +1,11 @@
 package logging
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"slices"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 var ingnoredLogPath = []string{"/healthz", "/probes", "/metrics"}

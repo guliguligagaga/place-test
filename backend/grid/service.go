@@ -1,7 +1,6 @@
 package grid
 
 import (
-	"backend/internal/protocol"
 	"context"
 	"errors"
 	"fmt"
@@ -10,8 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"backend/internal/protocol"
+	"backend/logging"
 	"github.com/go-redis/redis/v8"
-	"go.uber.org/zap"
 )
 
 const (
@@ -51,7 +51,6 @@ type RedisClient interface {
 
 type Service struct {
 	redisClient RedisClient
-	logger      *zap.Logger
 	config      Config
 	ctx         context.Context
 	msgChan     chan redis.XMessage
@@ -64,7 +63,7 @@ type Config struct {
 	BatchSize int
 }
 
-func NewGridService(rc RedisClient, logger *zap.Logger) *Service {
+func NewGridService(rc RedisClient) *Service {
 	config := Config{
 		GridKey:   os.Getenv(KeyEnvVar),
 		PodName:   os.Getenv(PodNameEnvVar),
@@ -75,33 +74,35 @@ func NewGridService(rc RedisClient, logger *zap.Logger) *Service {
 	service := &Service{
 		ctx:         context.Background(),
 		redisClient: rc,
-		logger:      logger,
 		config:      config,
 		msgChan:     make(chan redis.XMessage, 1000),
 	}
 
 	service.ensureConsumerGroup()
+
 	return service
 }
 
 func (s *Service) ensureConsumerGroup() {
 	err := s.redisClient.XGroupCreateMkStream(s.ctx, StreamName, ConsumerGroup, "0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
-		s.logger.Fatal("failed to create consumer group", zap.Error(err))
+		logging.Fatalf("failed to create consumer group %v", err)
 	}
 }
 
 func (s *Service) Start(ctx context.Context) {
-	s.logger.Info("starting grid service")
+	logging.Infof("starting grid service")
+
 	s.ctx = ctx
-	for i := 0; i < MaxProcessingConns; i++ {
+
+	for range MaxProcessingConns {
 		go s.processMessages()
 	}
 
 	go s.consumeStream()
 
 	<-ctx.Done()
-	s.logger.Info("shutting down grid service")
+	logging.Infof("shutting down grid service")
 }
 
 func (s *Service) consumeStream() {
@@ -109,6 +110,7 @@ func (s *Service) consumeStream() {
 		select {
 		case <-s.ctx.Done():
 			close(s.msgChan)
+
 			return
 		default:
 			s.readStreamBatch()
@@ -133,8 +135,9 @@ func (s *Service) readStreamBatch() {
 	}
 
 	if err != nil && !errors.Is(err, redis.Nil) {
-		s.logger.Error("stream read error", zap.Error(err))
+		logging.Errorf("stream read error %v", err)
 		time.Sleep(BaseRetryDelay)
+
 		return
 	}
 
@@ -152,10 +155,7 @@ func (s *Service) readStreamBatch() {
 func (s *Service) processMessages() {
 	for msg := range s.msgChan {
 		if err := s.processMessageWithRetry(msg); err != nil {
-			s.logger.Error("failed to process message after retries",
-				zap.String("message_id", msg.ID),
-				zap.Error(err),
-			)
+			logging.Errorf("failed to process message %s after retries: %v", msg.ID, err)
 		}
 	}
 }
@@ -168,26 +168,25 @@ func (s *Service) processMessageWithRetry(msg redis.XMessage) error {
 		}
 
 		if attempt < MaxRetries {
-			s.logger.Warn("retrying message processing",
-				zap.String("message_id", msg.ID),
-				zap.Int("attempt", attempt),
-				zap.Error(err),
-			)
+			logging.Warnf("retrying  %d message %s processing. err: %v", attempt, msg.ID, err)
 			time.Sleep(BaseRetryDelay * time.Duration(attempt))
 		}
 	}
+
 	return fmt.Errorf("max retries exceeded for message %s", msg.ID)
 }
 
 func (s *Service) processMessage(msg redis.XMessage) error {
-
-	processedKey := fmt.Sprintf("processed:%s", msg.ID)
+	processedKey := "processed:" + msg.ID
 	exists, err := s.redisClient.Exists(s.ctx, processedKey).Result()
+
 	if err != nil {
 		return fmt.Errorf("deduplication check failed: %w", err)
 	}
+
 	if exists > 0 {
-		s.logger.Debug("skipping duplicate message", zap.String("message_id", msg.ID))
+		logging.Debugf("skipping duplicate message %s", msg.ID)
+
 		return s.ackMessage(msg.ID)
 	}
 
@@ -241,11 +240,13 @@ func (s *Service) handleMessage(msg redis.XMessage) error {
 
 func parseMessageTimestamp(id string) (int64, error) {
 	timestampStr := strings.Split(id, "-")[0]
+
 	return strconv.ParseInt(timestampStr, 10, 64)
 }
 
 func (s *Service) storeUpdate(epoch int64, value string, timestamp int64) error {
 	key := fmt.Sprintf("%s:%s:%d", s.config.GridKey, UpdatesKeyPrefix, epoch)
+
 	return s.redisClient.ZAdd(s.ctx, key, &redis.Z{
 		Score:  float64(timestamp),
 		Member: value,
@@ -260,6 +261,7 @@ func (s *Service) updateGridStatus(value string) error {
 	cell := protocol.Decode([8]byte([]byte(value)))
 	offset := calculateOffset(cell.Y, cell.X, s.config.GridSize)
 	_, err := s.redisClient.BitField(s.ctx, s.config.GridKey, "SET", "u4", offset, cell.Color).Result()
+
 	return err
 }
 
