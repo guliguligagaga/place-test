@@ -6,7 +6,7 @@ This system is a scalable, real-time implementation of a collaborative pixel art
 
 Hosted on my Pi4 https://pixels.khalizov.com/
 
-![Untitled-2024-07-22-2203](https://github.com/user-attachments/assets/4aa36f43-9dc0-4e7d-86ce-7d9183ff74f5)
+<img width="1258" alt="Screenshot 2025-01-23 at 23 39 51" src="https://github.com/user-attachments/assets/b9dd63b7-b1a6-4ad5-adc3-887451f7cdbc" />
 
 
 ## Architecture
