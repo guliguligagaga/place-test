@@ -3,7 +3,6 @@ package grid
 import (
 	"backend/internal/protocol"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -258,11 +257,7 @@ func (s *Service) updateLatestEpoch(epoch int64) error {
 }
 
 func (s *Service) updateGridStatus(value string) error {
-	var cell protocol.Cell
-	if err := json.Unmarshal([]byte(value), &cell); err != nil {
-		return fmt.Errorf("cell decoding failed: %w", err)
-	}
-
+	cell := protocol.Decode([8]byte([]byte(value)))
 	offset := calculateOffset(cell.Y, cell.X, s.config.GridSize)
 	_, err := s.redisClient.BitField(s.ctx, s.config.GridKey, "SET", "u4", offset, cell.Color).Result()
 	return err
