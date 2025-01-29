@@ -72,7 +72,7 @@ func handleWebSocket(c *gin.Context) {
 		return
 	}
 
-	go sendLatestStateAndUpdates(client)
+	sendLatestStateAndUpdates(client)
 }
 func consumer(ctx context.Context, cli redis.UniversalClient) {
 

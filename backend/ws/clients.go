@@ -16,12 +16,12 @@ type Clients struct {
 }
 
 type Client struct {
-	ID   uint64
-	Conn *websocket.Conn
-	//send     chan []byte
-	done     chan struct{}
-	worker   *Worker
-	lastPing atomic.Int64
+	ID        uint64
+	Conn      *websocket.Conn
+	writePipe chan *websocket.PreparedMessage
+	done      chan struct{}
+	worker    *Worker
+	lastPing  atomic.Int64
 }
 
 func NewClients() *Clients {
@@ -51,11 +51,11 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 	clientID := generateClientID()
 	logging.Debugf("client %d assigned to worker %d", clientID, selectedWorker.id)
 	client := &Client{
-		ID:   clientID,
-		Conn: conn,
-		//send:   make(chan []byte, clientQueueSize),
-		done:   make(chan struct{}),
-		worker: selectedWorker,
+		ID:        clientID,
+		Conn:      conn,
+		writePipe: make(chan *websocket.PreparedMessage, 256),
+		done:      make(chan struct{}),
+		worker:    selectedWorker,
 	}
 	client.lastPing.Store(time.Now().UnixNano())
 
@@ -67,15 +67,16 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 	c.totalConns.Add(1)
 	c.pool.metrics.activeClients.Add(1)
 
-	go c.clientWriter(client)
-	go c.clientReader(client)
+	go c.writePump(client)
+	go c.readPump(client)
 
 	return client
 }
 
-func (c *Clients) clientReader(client *Client) {
+func (c *Clients) readPump(client *Client) {
 	client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
 	_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
+
 	client.Conn.SetPongHandler(func(string) error {
 		_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
 		client.lastPing.Store(time.Now().UnixNano())
@@ -107,8 +108,8 @@ func (c *Clients) Remove(client *Client) {
 
 		client.worker.clientsLock.Lock()
 		delete(client.worker.clients, client.ID)
-		client.worker.metrics.activeClients.Add(-1)
 		client.worker.clientsLock.Unlock()
+		client.worker.metrics.activeClients.Add(-1)
 		c.totalConns.Add(-1)
 		c.pool.metrics.activeClients.Add(-1)
 		client.Conn.Close()
@@ -136,25 +137,30 @@ func (c *Clients) Close() error {
 	return nil
 }
 
-func (c *Clients) clientWriter(client *Client) {
-	defer func() {
-		c.pingTicker.Stop()
-		client.Conn.Close()
-		logging.Infof("Closed writer for client %d", client.ID)
-	}()
-
+func (c *Clients) writePump(client *Client) {
 	for {
 		select {
+		case msg := <-client.writePipe:
+			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			err := client.Conn.WritePreparedMessage(msg)
+			if err != nil {
+				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
+				return
+			}
 		case <-c.pingTicker.C:
 			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := client.Conn.WriteMessage(websocket.PingMessage, nil)
+
+			if err != nil {
 				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
 				return
 			}
 			logging.Debugf("Sent ping to client %d", client.ID)
 
 		case <-client.done:
-			logging.Debugf("Writer closing for client %d", client.ID)
+			c.pingTicker.Stop()
+			client.Conn.Close()
+			logging.Infof("Closed writer for client %d", client.ID)
 			return
 		}
 	}
@@ -202,25 +208,9 @@ func (w *Worker) sendBatch(messages []*websocket.PreparedMessage) {
 
 	for _, msg := range messages {
 		for _, client := range clientsList {
-			if err := client.send(msg); err != nil {
-				logging.Errorf("failed to send a message to a client, %v", err)
-			}
+			client.writePipe <- msg
 		}
 	}
-
-}
-
-func (c *Client) send(message *websocket.PreparedMessage) error {
-	err := c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	if err != nil {
-		logging.Errorf("Failed to set deadline timeout %d: %v", c.ID, err)
-		return err
-	}
-	if err = c.Conn.WritePreparedMessage(message); err != nil {
-		logging.Errorf("Failed writing to client %d: %v", c.ID, err)
-		return err
-	}
-	return nil
 }
 
 func (c *Client) sendRaw(message []byte) error {
