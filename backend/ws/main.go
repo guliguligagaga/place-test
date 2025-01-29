@@ -124,11 +124,8 @@ func sendLatestStateAndUpdates(client *Client) {
 	}
 
 	data := addMsgType(msgTypeState, []byte(state))
-	select {
-	case client.send <- data:
-	case <-client.done:
-		return
-	default:
+	err = client.sendRaw(data)
+	if err != nil {
 		logging.Errorf("Client %d queue full when sending state", client.ID)
 		return
 	}
@@ -157,12 +154,9 @@ func sendLatestStateAndUpdates(client *Client) {
 
 	for _, update := range updates {
 		data = addMsgType(msgTypeUpdate, update)
-		select {
-		case client.send <- data:
-		case <-client.done:
-			return
-		default:
-			logging.Errorf("Client %d queue full when sending updates", client.ID)
+		err = client.sendRaw(data)
+		if err != nil {
+			logging.Errorf("Client %d queue full when sending state", client.ID)
 			return
 		}
 	}

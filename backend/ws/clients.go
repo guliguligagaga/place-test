@@ -11,11 +11,23 @@ import (
 type Clients struct {
 	pool       *WorkerPool
 	totalConns atomic.Int64
+
+	pingTicker *time.Ticker
+}
+
+type Client struct {
+	ID   uint64
+	Conn *websocket.Conn
+	//send     chan []byte
+	done     chan struct{}
+	worker   *Worker
+	lastPing atomic.Int64
 }
 
 func NewClients() *Clients {
 	return &Clients{
-		pool: NewWorkerPool(),
+		pool:       NewWorkerPool(),
+		pingTicker: time.NewTicker(pingInterval),
 	}
 }
 
@@ -39,9 +51,9 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 	clientID := generateClientID()
 	logging.Debugf("client %d assigned to worker %d", clientID, selectedWorker.id)
 	client := &Client{
-		ID:     clientID,
-		Conn:   conn,
-		send:   make(chan []byte, clientQueueSize),
+		ID:   clientID,
+		Conn: conn,
+		//send:   make(chan []byte, clientQueueSize),
 		done:   make(chan struct{}),
 		worker: selectedWorker,
 	}
@@ -105,10 +117,11 @@ func (c *Clients) Remove(client *Client) {
 
 func (c *Clients) Broadcast(message []byte) {
 	c.pool.metrics.totalMessages.Add(1)
+	prepMsg, _ := websocket.NewPreparedMessage(websocket.BinaryMessage, message)
 
 	for _, worker := range c.pool.workers {
 		select {
-		case worker.messages <- message:
+		case worker.messages <- prepMsg:
 		default:
 			c.pool.metrics.droppedMessages.Add(1)
 			logging.Errorf("Worker %d queue full, dropping message", worker.id)
@@ -124,28 +137,15 @@ func (c *Clients) Close() error {
 }
 
 func (c *Clients) clientWriter(client *Client) {
-	pingTicker := time.NewTicker(pingInterval)
 	defer func() {
-		pingTicker.Stop()
+		c.pingTicker.Stop()
 		client.Conn.Close()
 		logging.Infof("Closed writer for client %d", client.ID)
 	}()
 
 	for {
 		select {
-		case message := <-client.send:
-			err := client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if err != nil {
-				logging.Errorf("Failed to set deadline timeout %d: %v", client.ID, err)
-				return
-			}
-			if err := client.Conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
-				logging.Errorf("Failed writing to client %d: %v", client.ID, err)
-				return
-			}
-			logging.Debugf("Wrote message of size %d bytes to client %d", len(message), client.ID)
-
-		case <-pingTicker.C:
+		case <-c.pingTicker.C:
 			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
@@ -182,7 +182,7 @@ func (w *Worker) cleanupInactiveClients() {
 	}
 }
 
-func (w *Worker) sendBatch(messages [][]byte) {
+func (w *Worker) sendBatch(messages []*websocket.PreparedMessage) {
 	logging.Debugf("sending a batch size %d from worker %d", len(messages), w.id)
 	w.clientsLock.RLock()
 	clientCount := len(w.clients)
@@ -200,21 +200,38 @@ func (w *Worker) sendBatch(messages [][]byte) {
 	logging.Debugf("Worker %d sending batch of %d messages to %d clients",
 		w.id, len(messages), len(clientsList))
 
-	droppedCount := 0
-	for _, client := range clientsList {
-		for _, msg := range messages {
-			select {
-			case client.send <- msg:
-			default:
-				droppedCount++
-				logging.Errorf("Client %d queue full (size: %d), dropped message",
-					client.ID, len(client.send))
+	for _, msg := range messages {
+		for _, client := range clientsList {
+			if err := client.send(msg); err != nil {
+				logging.Errorf("failed to send a message to a client, %v", err)
 			}
 		}
 	}
 
-	if droppedCount > 0 {
-		logging.Warnf("Worker %d dropped %d messages due to full client queues",
-			w.id, droppedCount)
+}
+
+func (c *Client) send(message *websocket.PreparedMessage) error {
+	err := c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	if err != nil {
+		logging.Errorf("Failed to set deadline timeout %d: %v", c.ID, err)
+		return err
 	}
+	if err = c.Conn.WritePreparedMessage(message); err != nil {
+		logging.Errorf("Failed writing to client %d: %v", c.ID, err)
+		return err
+	}
+	return nil
+}
+
+func (c *Client) sendRaw(message []byte) error {
+	err := c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	if err != nil {
+		logging.Errorf("Failed to set deadline timeout %d: %v", c.ID, err)
+		return err
+	}
+	if err = c.Conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+		logging.Errorf("Failed writing to client %d: %v", c.ID, err)
+		return err
+	}
+	return nil
 }

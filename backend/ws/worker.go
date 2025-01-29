@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"github.com/gorilla/websocket"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -8,19 +9,17 @@ import (
 	"time"
 
 	"backend/logging"
-	"github.com/gorilla/websocket"
 )
 
-var numWorkers = runtime.NumCPU()
+var numWorkers = runtime.GOMAXPROCS(0) * 2
 
 const (
-	workerQueueSize     = 10000
-	clientQueueSize     = 256
-	batchSize           = 100
-	batchTimeout        = 200 * time.Millisecond
-	maxClientsPerWorker = 5000
+	workerQueueSize     = 25000
+	batchSize           = 500
+	batchTimeout        = 50 * time.Millisecond
+	maxClientsPerWorker = 1000
 	pingInterval        = 30 * time.Second
-	writeTimeout        = 10 * time.Second
+	writeTimeout        = 100 * time.Millisecond
 	readTimeout         = 60 * time.Second
 )
 
@@ -31,22 +30,14 @@ type WorkerPool struct {
 }
 
 type Worker struct {
-	id            int
-	clients       map[uint64]*Client
-	clientsLock   sync.RWMutex
-	messages      chan []byte
-	done          chan struct{}
-	metrics       *WorkerMetrics
-	cleanupTicker *time.Ticker
-}
-
-type Client struct {
-	ID       uint64
-	Conn     *websocket.Conn
-	send     chan []byte
-	done     chan struct{}
-	worker   *Worker
-	lastPing atomic.Int64
+	id               int
+	clients          map[uint64]*Client
+	clientsLock      sync.RWMutex
+	messages         chan *websocket.PreparedMessage
+	done             chan struct{}
+	metrics          *WorkerMetrics
+	cleanupTicker    *time.Ticker
+	dynamicBatchSize int
 }
 
 type PoolMetrics struct {
@@ -71,12 +62,13 @@ func NewWorkerPool() *WorkerPool {
 
 	for i := 0; i < numWorkers; i++ {
 		worker := &Worker{
-			id:            i,
-			clients:       make(map[uint64]*Client),
-			messages:      make(chan []byte, workerQueueSize),
-			done:          make(chan struct{}),
-			metrics:       &WorkerMetrics{},
-			cleanupTicker: time.NewTicker(time.Minute),
+			id:               i,
+			clients:          make(map[uint64]*Client),
+			messages:         make(chan *websocket.PreparedMessage, workerQueueSize),
+			done:             make(chan struct{}),
+			metrics:          &WorkerMetrics{},
+			cleanupTicker:    time.NewTicker(time.Minute),
+			dynamicBatchSize: batchSize,
 		}
 		pool.workers[i] = worker
 		go worker.run()
@@ -89,7 +81,7 @@ func NewWorkerPool() *WorkerPool {
 }
 
 func (w *Worker) run() {
-	batch := make([][]byte, 0, batchSize)
+	batch := make([]*websocket.PreparedMessage, 0, w.dynamicBatchSize)
 	timer := time.NewTimer(0) // Create stopped timer
 	if !timer.Stop() {
 		<-timer.C
@@ -106,7 +98,7 @@ func (w *Worker) run() {
 			w.metrics.queueSize.Add(1)
 			batch = append(batch, msg)
 
-			if len(batch) >= batchSize {
+			if len(batch) >= w.dynamicBatchSize {
 				w.sendBatch(batch)
 				batch = batch[:0]
 				if !timer.Stop() {
@@ -150,13 +142,6 @@ func (p *WorkerPool) reportMetrics() {
 
 			logging.Infof("Metrics - Messages: total=%d dropped=%d clients=%d",
 				total, dropped, clients)
-
-			//for _, w := range p.workers {
-			//	logging.Infof("Worker %d - Queue=%d Clients=%d",
-			//		w.id,
-			//		w.metrics.queueSize.Load(),
-			//		w.metrics.activeClients.Load())
-			//}
 		}
 	}
 }
