@@ -13,6 +13,7 @@ type Clients struct {
 	totalConns atomic.Int64
 
 	pingTicker *time.Ticker
+	pingMsg    *websocket.PreparedMessage
 }
 
 type Client struct {
@@ -25,9 +26,11 @@ type Client struct {
 }
 
 func NewClients() *Clients {
+	pingMsg, _ := websocket.NewPreparedMessage(websocket.PingMessage, []byte{})
 	return &Clients{
 		pool:       NewWorkerPool(),
 		pingTicker: time.NewTicker(pingInterval),
+		pingMsg:    pingMsg,
 	}
 }
 
@@ -140,21 +143,19 @@ func (c *Clients) Close() error {
 func (c *Clients) writePump(client *Client) {
 	for {
 		select {
-		case msg := <-client.writePipe:
+		case msg, ok := <-client.writePipe:
 			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if !ok {
+				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
 			err := client.Conn.WritePreparedMessage(msg)
 			if err != nil {
-				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
+				logging.Errorf("Failed to send msg to client %d: %v", client.ID, err)
 				return
 			}
 		case <-c.pingTicker.C:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			err := client.Conn.WriteMessage(websocket.PingMessage, nil)
-
-			if err != nil {
-				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
-				return
-			}
+			client.writePipe <- clients.pingMsg
 			logging.Debugf("Sent ping to client %d", client.ID)
 
 		case <-client.done:
