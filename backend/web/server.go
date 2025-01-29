@@ -177,10 +177,11 @@ func (s *Server) Run() {
 
 	s.cancelFunc()
 
-	for _, hook := range s.shutdownHooks {
-		if err := hook.Close(); err != nil {
+	for i := len(s.shutdownHooks) - 1; i > 0; i-- {
+		if err := s.shutdownHooks[i].Close(); err != nil {
 			logging.Errorf("Shutdown hook error: %v", err)
 		}
+
 	}
 
 	select {

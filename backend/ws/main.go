@@ -45,8 +45,8 @@ func Run() {
 	localCache = NewCache(5)
 	go localCache.runCleanup()
 	redisClient = web.DefaultRedis()
-
-	server := web.NewServer(web.WithRedis(redisClient),
+	server := web.NewServer(
+		web.WithRedis(redisClient),
 		ginEngine,
 		web.WithBackgroundWorker(func(ctx context.Context) {
 			consumer(ctx, redisClient)
@@ -77,7 +77,6 @@ func handleWebSocket(c *gin.Context) {
 func consumer(ctx context.Context, cli redis.UniversalClient) {
 
 	pubsub := cli.Subscribe(context.Background(), "grid_updates_brd")
-	defer pubsub.Close()
 
 	for msg := range pubsub.Channel() {
 		select {

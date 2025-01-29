@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"github.com/gorilla/websocket"
 	"math/rand"
 	"runtime"
@@ -20,13 +21,14 @@ const (
 	maxClientsPerWorker = 1000
 	pingInterval        = 30 * time.Second
 	writeTimeout        = 100 * time.Millisecond
-	readTimeout         = 60 * time.Second
+	readTimeout         = 1 * time.Second
 )
 
 type WorkerPool struct {
 	workers    []*Worker
 	numWorkers int
 	metrics    *PoolMetrics
+	wg         sync.WaitGroup
 }
 
 type Worker struct {
@@ -59,7 +61,6 @@ func NewWorkerPool() *WorkerPool {
 		numWorkers: numWorkers,
 		metrics:    &PoolMetrics{},
 	}
-
 	for i := 0; i < numWorkers; i++ {
 		worker := &Worker{
 			id:               i,
@@ -71,7 +72,8 @@ func NewWorkerPool() *WorkerPool {
 			dynamicBatchSize: batchSize,
 		}
 		pool.workers[i] = worker
-		go worker.run()
+		pool.wg.Add(1)
+		go worker.run(&pool.wg)
 	}
 
 	// Start metrics reporter
@@ -80,18 +82,20 @@ func NewWorkerPool() *WorkerPool {
 	return pool
 }
 
-func (w *Worker) run() {
+func (w *Worker) run(wg *sync.WaitGroup) {
 	batch := make([]*websocket.PreparedMessage, 0, w.dynamicBatchSize)
 	timer := time.NewTimer(0) // Create stopped timer
 	if !timer.Stop() {
 		<-timer.C
 	}
-
 	defer func() {
 		timer.Stop()
 		w.cleanupTicker.Stop()
+		for _, client := range w.clients {
+			client.close()
+		}
+		wg.Done()
 	}()
-
 	for {
 		select {
 		case msg := <-w.messages:
@@ -124,6 +128,7 @@ func (w *Worker) run() {
 			w.cleanupInactiveClients()
 
 		case <-w.done:
+			logging.Debugf("closing worker %d", w.id)
 			return
 		}
 	}
@@ -146,10 +151,46 @@ func (p *WorkerPool) reportMetrics() {
 	}
 }
 
+func (p *WorkerPool) close() {
+	for _, worker := range p.workers {
+		worker.done <- struct{}{}
+		worker.closeClients()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		logging.Errorf("timeout closing the worker pool")
+		return
+	case <-done:
+		return
+	}
+}
+
 var clientCounter uint32
 
 func generateClientID() uint64 {
 	counter := atomic.AddUint32(&clientCounter, 1)
 	random := rand.Uint32()
 	return (uint64(counter) << 32) | uint64(random)
+}
+
+func (w *Worker) addClient(c *Client) {
+	w.clientsLock.Lock()
+	w.clients[c.ID] = c
+	w.clientsLock.Unlock()
+	w.metrics.activeClients.Add(1)
+}
+
+func (w *Worker) closeClients() {
+	close(w.done)
+	close(w.messages)
 }

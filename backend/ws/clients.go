@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"context"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +19,7 @@ type Clients struct {
 }
 
 type Client struct {
+	serverCtx context.Context
 	ID        uint64
 	Conn      *websocket.Conn
 	writePipe chan *websocket.PreparedMessage
@@ -62,10 +65,7 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 	}
 	client.lastPing.Store(time.Now().UnixNano())
 
-	selectedWorker.clientsLock.Lock()
-	selectedWorker.clients[clientID] = client
-	selectedWorker.clientsLock.Unlock()
-	selectedWorker.metrics.activeClients.Add(1)
+	selectedWorker.addClient(client)
 
 	c.totalConns.Add(1)
 	c.pool.metrics.activeClients.Add(1)
@@ -78,7 +78,6 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 
 func (c *Clients) readPump(client *Client) {
 	client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
-	_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
 
 	client.Conn.SetPongHandler(func(string) error {
 		_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -87,35 +86,14 @@ func (c *Clients) readPump(client *Client) {
 	})
 
 	for {
+		_ = client.Conn.SetReadDeadline(time.Now().Add(readTimeout))
 		_, _, err := client.Conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err,
-				websocket.CloseNormalClosure,
-				websocket.CloseGoingAway,
-				websocket.CloseAbnormalClosure) {
-				logging.Errorf("read error: %v", err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("conneaction read error: %v", err)
 			}
 			break
 		}
-	}
-
-	c.Remove(client)
-}
-
-func (c *Clients) Remove(client *Client) {
-	select {
-	case <-client.done:
-		return
-	default:
-		close(client.done)
-
-		client.worker.clientsLock.Lock()
-		delete(client.worker.clients, client.ID)
-		client.worker.clientsLock.Unlock()
-		client.worker.metrics.activeClients.Add(-1)
-		c.totalConns.Add(-1)
-		c.pool.metrics.activeClients.Add(-1)
-		client.Conn.Close()
 	}
 }
 
@@ -134,9 +112,8 @@ func (c *Clients) Broadcast(message []byte) {
 }
 
 func (c *Clients) Close() error {
-	for _, worker := range c.pool.workers {
-		worker.done <- struct{}{}
-	}
+	c.pingTicker.Stop()
+	c.pool.close()
 	return nil
 }
 
@@ -146,9 +123,9 @@ func (c *Clients) writePump(client *Client) {
 		case msg, ok := <-client.writePipe:
 			client.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if !ok {
-				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			logging.Debugf("%v", msg)
 			err := client.Conn.WritePreparedMessage(msg)
 			if err != nil {
 				logging.Errorf("Failed to send msg to client %d: %v", client.ID, err)
@@ -157,12 +134,6 @@ func (c *Clients) writePump(client *Client) {
 		case <-c.pingTicker.C:
 			client.writePipe <- clients.pingMsg
 			logging.Debugf("Sent ping to client %d", client.ID)
-
-		case <-client.done:
-			c.pingTicker.Stop()
-			client.Conn.Close()
-			logging.Infof("Closed writer for client %d", client.ID)
-			return
 		}
 	}
 }
@@ -190,17 +161,15 @@ func (w *Worker) cleanupInactiveClients() {
 }
 
 func (w *Worker) sendBatch(messages []*websocket.PreparedMessage) {
-	logging.Debugf("sending a batch size %d from worker %d", len(messages), w.id)
 	w.clientsLock.RLock()
 	clientCount := len(w.clients)
+	if clientCount == 0 {
+		return
+	}
+	logging.Debugf("sending a batch size %d from worker %d", len(messages), w.id)
 	clientsList := make([]*Client, 0, clientCount)
 	for _, client := range w.clients {
-		select {
-		case <-client.done:
-			continue
-		default:
-			clientsList = append(clientsList, client)
-		}
+		clientsList = append(clientsList, client)
 	}
 	w.clientsLock.RUnlock()
 
@@ -209,6 +178,10 @@ func (w *Worker) sendBatch(messages []*websocket.PreparedMessage) {
 
 	for _, msg := range messages {
 		for _, client := range clientsList {
+			if msg == nil {
+				// wtf are we doing here
+				continue
+			}
 			client.writePipe <- msg
 		}
 	}
@@ -225,4 +198,15 @@ func (c *Client) sendRaw(message []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Client) close() {
+	close(c.writePipe)
+	logging.Debugf("closing client %d", c.ID)
+	c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	err := c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	if err != nil {
+		logging.Errorf("Failed to send close to client %d: %v", c.ID, err)
+	}
+	logging.Infof("Closed writer for client %d", c.ID)
 }
