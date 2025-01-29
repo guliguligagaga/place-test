@@ -1,7 +1,8 @@
 package ws
 
 import (
-	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -57,9 +58,10 @@ func (c *Cache) cleanup() {
 	c.mu.RLock()
 	keysToDelete := make([]string, 0)
 	for key := range c.data {
-		var epochKey int64
-		if _, err := fmt.Sscanf(key, "%s:updates:%d", &epochKey); err == nil && epochKey < threshold {
-			keysToDelete = append(keysToDelete, key)
+		if epochStart := strings.LastIndex(key, ":"); epochStart != -1 {
+			if epoch, err := strconv.ParseInt(key[epochStart+1:], 10, 64); err == nil && epoch < threshold {
+				keysToDelete = append(keysToDelete, key)
+			}
 		}
 	}
 	c.mu.RUnlock()

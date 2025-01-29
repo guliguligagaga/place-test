@@ -2,6 +2,7 @@ package ws
 
 import (
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,12 +11,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var numWorkers = runtime.NumCPU()
+
 const (
-	numWorkers          = 16
 	workerQueueSize     = 10000
 	clientQueueSize     = 256
 	batchSize           = 100
-	batchTimeout        = 50 * time.Millisecond
+	batchTimeout        = 200 * time.Millisecond
 	maxClientsPerWorker = 5000
 	pingInterval        = 30 * time.Second
 	writeTimeout        = 10 * time.Second
@@ -29,12 +31,13 @@ type WorkerPool struct {
 }
 
 type Worker struct {
-	id          int
-	clients     map[uint64]*Client
-	clientsLock sync.RWMutex
-	messages    chan []byte
-	done        chan struct{}
-	metrics     *WorkerMetrics
+	id            int
+	clients       map[uint64]*Client
+	clientsLock   sync.RWMutex
+	messages      chan []byte
+	done          chan struct{}
+	metrics       *WorkerMetrics
+	cleanupTicker *time.Ticker
 }
 
 type Client struct {
@@ -55,6 +58,8 @@ type PoolMetrics struct {
 type WorkerMetrics struct {
 	queueSize     atomic.Int32
 	activeClients atomic.Int32
+	batchesSent   atomic.Uint64
+	timerResets   atomic.Uint64
 }
 
 func NewWorkerPool() *WorkerPool {
@@ -66,11 +71,12 @@ func NewWorkerPool() *WorkerPool {
 
 	for i := 0; i < numWorkers; i++ {
 		worker := &Worker{
-			id:       i,
-			clients:  make(map[uint64]*Client),
-			messages: make(chan []byte, workerQueueSize),
-			done:     make(chan struct{}),
-			metrics:  &WorkerMetrics{},
+			id:            i,
+			clients:       make(map[uint64]*Client),
+			messages:      make(chan []byte, workerQueueSize),
+			done:          make(chan struct{}),
+			metrics:       &WorkerMetrics{},
+			cleanupTicker: time.NewTicker(time.Minute),
 		}
 		pool.workers[i] = worker
 		go worker.run()
@@ -84,12 +90,14 @@ func NewWorkerPool() *WorkerPool {
 
 func (w *Worker) run() {
 	batch := make([][]byte, 0, batchSize)
-	timer := time.NewTimer(batchTimeout)
-	cleanupTicker := time.NewTicker(time.Minute)
+	timer := time.NewTimer(0) // Create stopped timer
+	if !timer.Stop() {
+		<-timer.C
+	}
 
 	defer func() {
 		timer.Stop()
-		cleanupTicker.Stop()
+		w.cleanupTicker.Stop()
 	}()
 
 	for {
@@ -97,9 +105,18 @@ func (w *Worker) run() {
 		case msg := <-w.messages:
 			w.metrics.queueSize.Add(1)
 			batch = append(batch, msg)
+
 			if len(batch) >= batchSize {
 				w.sendBatch(batch)
 				batch = batch[:0]
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+			} else if len(batch) == 1 {
+				// Start timer only when first message arrives in empty batch
 				timer.Reset(batchTimeout)
 			}
 			w.metrics.queueSize.Add(-1)
@@ -108,10 +125,10 @@ func (w *Worker) run() {
 			if len(batch) > 0 {
 				w.sendBatch(batch)
 				batch = batch[:0]
+				w.metrics.batchesSent.Add(1)
 			}
-			timer.Reset(batchTimeout)
 
-		case <-cleanupTicker.C:
+		case <-w.cleanupTicker.C:
 			w.cleanupInactiveClients()
 
 		case <-w.done:
