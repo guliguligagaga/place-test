@@ -3,12 +3,19 @@ package ws
 import (
 	"context"
 	"log"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"backend/logging"
 	"github.com/gorilla/websocket"
+)
+
+const (
+	pingInterval = 30 * time.Second
+	writeTimeout = 100 * time.Millisecond
+	readTimeout  = 1 * time.Second
 )
 
 type Clients struct {
@@ -169,4 +176,12 @@ func (c *Client) close() {
 		logging.Errorf("Failed to send close to client %d: %v", c.ID, err)
 	}
 	logging.Infof("Closed writer for client %d", c.ID)
+}
+
+var clientCounter uint32
+
+func generateClientID() uint64 {
+	counter := atomic.AddUint32(&clientCounter, 1)
+	random := rand.Uint32()
+	return (uint64(counter) << 32) | uint64(random)
 }
