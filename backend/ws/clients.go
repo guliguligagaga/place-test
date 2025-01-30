@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,11 +12,12 @@ import (
 )
 
 type Clients struct {
-	pool       *WorkerPool
+	pool       *sync.Map
 	totalConns atomic.Int64
 
-	pingTicker *time.Ticker
-	pingMsg    *websocket.PreparedMessage
+	pingTicker    *time.Ticker
+	cleanupTicker *time.Ticker
+	pingMsg       *websocket.PreparedMessage
 }
 
 type Client struct {
@@ -24,51 +26,31 @@ type Client struct {
 	Conn      *websocket.Conn
 	writePipe chan *websocket.PreparedMessage
 	done      chan struct{}
-	worker    *Worker
 	lastPing  atomic.Int64
 }
 
 func NewClients() *Clients {
 	pingMsg, _ := websocket.NewPreparedMessage(websocket.PingMessage, []byte{})
 	return &Clients{
-		pool:       NewWorkerPool(),
-		pingTicker: time.NewTicker(pingInterval),
-		pingMsg:    pingMsg,
+		pool:          &sync.Map{},
+		cleanupTicker: time.NewTicker(time.Minute),
+		pingTicker:    time.NewTicker(pingInterval),
+		pingMsg:       pingMsg,
 	}
 }
 
 func (c *Clients) Add(conn *websocket.Conn) *Client {
-	// Find least loaded worker
-	var selectedWorker *Worker
-	minClients := int32(maxClientsPerWorker)
-
-	for _, worker := range c.pool.workers {
-		numClients := worker.metrics.activeClients.Load()
-		if numClients < minClients {
-			minClients = numClients
-			selectedWorker = worker
-		}
-	}
-
-	if selectedWorker == nil || minClients >= maxClientsPerWorker {
-		logging.Errorf("failed to choose worker for client")
-		return nil
-	}
 	clientID := generateClientID()
-	logging.Debugf("client %d assigned to worker %d", clientID, selectedWorker.id)
 	client := &Client{
 		ID:        clientID,
 		Conn:      conn,
 		writePipe: make(chan *websocket.PreparedMessage, 256),
 		done:      make(chan struct{}),
-		worker:    selectedWorker,
 	}
 	client.lastPing.Store(time.Now().UnixNano())
-
-	selectedWorker.addClient(client)
+	c.pool.Store(clientID, client)
 
 	c.totalConns.Add(1)
-	c.pool.metrics.activeClients.Add(1)
 
 	go c.writePump(client)
 	go c.readPump(client)
@@ -98,22 +80,26 @@ func (c *Clients) readPump(client *Client) {
 }
 
 func (c *Clients) Broadcast(message []byte) {
-	c.pool.metrics.totalMessages.Add(1)
 	prepMsg, _ := websocket.NewPreparedMessage(websocket.BinaryMessage, message)
 
-	for _, worker := range c.pool.workers {
+	c.pool.Range(func(key, value any) bool {
+		cli := value.(*Client)
 		select {
-		case worker.messages <- prepMsg:
+		case cli.writePipe <- prepMsg:
 		default:
-			c.pool.metrics.droppedMessages.Add(1)
-			logging.Errorf("Worker %d queue full, dropping message", worker.id)
+			cli.done <- struct{}{}
 		}
-	}
+		return true
+	})
+
 }
 
 func (c *Clients) Close() error {
 	c.pingTicker.Stop()
-	c.pool.close()
+	c.pool.Range(func(key, value any) bool {
+		value.(*Client).close()
+		return true
+	})
 	return nil
 }
 
@@ -134,56 +120,30 @@ func (c *Clients) writePump(client *Client) {
 		case <-c.pingTicker.C:
 			client.writePipe <- clients.pingMsg
 			logging.Debugf("Sent ping to client %d", client.ID)
+		case <-c.cleanupTicker.C:
+			c.cleanupInactiveClients()
 		}
 	}
 }
 
-func (w *Worker) cleanupInactiveClients() {
+func (c *Clients) cleanupInactiveClients() {
 	threshold := time.Now().Add(-2 * time.Minute).UnixNano()
 	inactiveCount := 0
 
-	w.clientsLock.Lock()
-	for id, client := range w.clients {
+	c.pool.Range(func(key, value any) bool {
+		client := value.(*Client)
 		if client.lastPing.Load() < threshold {
-			delete(w.clients, id)
-			close(client.done)
-			w.metrics.activeClients.Add(-1)
+			c.pool.Delete(key)
+			client.close()
 			inactiveCount++
 			logging.Infof("Cleaned up inactive client %d (last ping: %v)",
-				id, time.Unix(0, client.lastPing.Load()))
+				client.ID, time.Unix(0, client.lastPing.Load()))
 		}
-	}
-	w.clientsLock.Unlock()
+		return true
+	})
 
 	if inactiveCount > 0 {
-		logging.Infof("Worker %d cleaned up %d inactive clients", w.id, inactiveCount)
-	}
-}
-
-func (w *Worker) sendBatch(messages []*websocket.PreparedMessage) {
-	w.clientsLock.RLock()
-	clientCount := len(w.clients)
-	if clientCount == 0 {
-		return
-	}
-	logging.Debugf("sending a batch size %d from worker %d", len(messages), w.id)
-	clientsList := make([]*Client, 0, clientCount)
-	for _, client := range w.clients {
-		clientsList = append(clientsList, client)
-	}
-	w.clientsLock.RUnlock()
-
-	logging.Debugf("Worker %d sending batch of %d messages to %d clients",
-		w.id, len(messages), len(clientsList))
-
-	for _, msg := range messages {
-		for _, client := range clientsList {
-			if msg == nil {
-				// wtf are we doing here
-				continue
-			}
-			client.writePipe <- msg
-		}
+		logging.Infof("cleaned up %d inactive clients", inactiveCount)
 	}
 }
 
