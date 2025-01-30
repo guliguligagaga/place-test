@@ -66,7 +66,7 @@ func (c *Clients) Add(conn *websocket.Conn) *Client {
 }
 
 func (c *Clients) readPump(client *Client) {
-	//client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
+	client.Conn.SetReadLimit(512) // Small limit since we don't expect client messages
 	//client.Conn.SetPingHandler(func(string) error {
 	//	if err := client.Conn.WriteControl(websocket.PongMessage, []byte{}, time.Now().Add(writeTimeout)); err != nil {
 	//		return err
@@ -140,7 +140,12 @@ func (c *Clients) writePump(client *Client) {
 		case <-c.pingTicker.C:
 			err := client.Conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second))
 			if err != nil {
-				logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
+				if !websocket.IsCloseError(err,
+					websocket.CloseNormalClosure,
+					websocket.CloseGoingAway,
+					websocket.CloseAbnormalClosure) {
+					logging.Errorf("Failed to send ping to client %d: %v", client.ID, err)
+				}
 				c.remove(client)
 				return
 			}
@@ -174,6 +179,7 @@ func (c *Clients) cleanupInactiveClients() {
 
 func (c *Clients) remove(cli *Client) {
 	c.pool.Delete(cli.ID)
+	close(cli.writePipe)
 	cli.Conn.Close()
 }
 
