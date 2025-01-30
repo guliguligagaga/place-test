@@ -85,7 +85,7 @@ func consumer(ctx context.Context, cli redis.UniversalClient) {
 		default:
 		}
 		data := addMsgType(msgTypeUpdate, []byte(msg.Payload))
-		logging.Debugf("got a new message from kafka, broadcasting it")
+		logging.Debugf("got a new message, broadcasting it")
 		clients.Broadcast(data)
 		cacheKey := fmt.Sprintf("%s:updates:%d", gridKey, getCurrentEpoch())
 		localCache.Update(cacheKey, data)
